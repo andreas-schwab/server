@@ -583,7 +583,7 @@ store_server_fields(TABLE *table, FOREIGN_SERVER *server)
     table->field[4]->store(server->password,
                            (uint) strlen(server->password), system_charset_info))
     goto err;
-  if (server->port > -1 &&
+  if (server->port > -1 && server->port <= INT32_MAX &&
     table->field[5]->store(server->port))
     goto err;
   if (server->socket &&
@@ -1265,7 +1265,7 @@ prepare_server_struct_for_insert(LEX_SERVER_OPTIONS *server_options)
   server->server_name_length= server_options->server_name.length;
 
   /* set to default_port if not specified */
-  server->port= server_options->port > -1 ?
+  server->port= server_options->port > -1 && server_options->port <= INT32_MAX ?
     server_options->port : default_port;
 
   DBUG_RETURN(server);
@@ -1320,6 +1320,7 @@ prepare_server_struct_for_update(LEX_SERVER_OPTIONS *server_options,
     port is initialised to -1, so if unset, it will be -1
   */
   altered->port= (server_options->port > -1 &&
+                  server_options->port <= INT32_MAX &&
                  server_options->port != existing->port) ?
     server_options->port : -1;
 

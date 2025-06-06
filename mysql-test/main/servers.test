@@ -50,3 +50,22 @@ CREATE SERVER s1 FOREIGN DATA WRAPPER mysql OPTIONS (HOST '127.0.0.1');
 ALTER TABLE mysql.servers ENGINE=innodb;
 FLUSH PRIVILEGES;
 drop server s1;
+
+--echo #
+--echo # MDEV-36230 SIGSEGV in store_server_fields on CREATE SERVER
+--echo #
+CREATE SERVER s FOREIGN DATA WRAPPER mysql OPTIONS (HOST'',PORT 4294967295);
+select * from mysql.servers;
+drop server s;
+CREATE SERVER s FOREIGN DATA WRAPPER mysql OPTIONS (HOST'',PORT 2147483647);
+select * from mysql.servers;
+drop server s;
+CREATE SERVER s FOREIGN DATA WRAPPER mysql OPTIONS (HOST'',PORT 2147483648);
+select * from mysql.servers;
+drop server s;
+CREATE SERVER s FOREIGN DATA WRAPPER mysql OPTIONS (HOST'',PORT 18446744073709551615);
+select * from mysql.servers;
+drop server s;
+--ERROR ER_PARSE_ERROR
+CREATE SERVER s FOREIGN DATA WRAPPER mysql OPTIONS (HOST'',PORT -5);
+select * from mysql.servers;
