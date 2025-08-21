@@ -18,6 +18,7 @@
 
 #ifdef HAVE_REPLICATION
 
+#include "rpl/change_master.hh"
 #include "rpl_rli.h"
 #include "rpl_reporting.h"
 #include <my_sys.h>
@@ -184,12 +185,14 @@ typedef struct st_rows_event_tracker
 
 *****************************************************************************/
 
-class Master_info : public Slave_reporting_capability
+class Master_info: public ChangeMaster, public Slave_reporting_capability
 {
  public:
-  enum enum_using_gtid {
-    USE_GTID_NO= 0, USE_GTID_CURRENT_POS= 1, USE_GTID_SLAVE_POS= 2
-  };
+  /// @deprecated
+  inline static constexpr enum_master_use_gtid
+    USE_GTID_NO         = enum_master_use_gtid::NO,
+    USE_GTID_CURRENT_POS= enum_master_use_gtid::CURRENT_POS,
+    USE_GTID_SLAVE_POS  = enum_master_use_gtid::SLAVE_POS;
 
   Master_info(LEX_CSTRING *connection_name, bool is_slave_recovery);
   ~Master_info();
@@ -200,7 +203,11 @@ class Master_info : public Slave_reporting_capability
     /* If malloc() in initialization failed */
     return connection_name.str == 0;
   }
-  static const char *using_gtid_astext(enum enum_using_gtid arg);
+  inline const char *using_gtid_astext(enum_master_use_gtid arg)
+  {
+    DBUG_ASSERT(arg >= enum_master_use_gtid::DEFAULT);
+    return NAME_MASTER_USE_GTID[static_cast<char>(arg)];
+  }
   bool using_parallel()
   {
     return opt_slave_parallel_threads > 0 &&
@@ -228,11 +235,6 @@ class Master_info : public Slave_reporting_capability
   char password[MAX_PASSWORD_LENGTH*SYSTEM_CHARSET_MBMAXLEN+1];
   LEX_CSTRING connection_name; 		/* User supplied connection name */
   LEX_CSTRING cmp_connection_name;	/* Connection name in lower case */
-  bool ssl; // enables use of SSL connection if true
-  char ssl_ca[FN_REFLEN], ssl_capath[FN_REFLEN], ssl_cert[FN_REFLEN];
-  char ssl_cipher[FN_REFLEN], ssl_key[FN_REFLEN];
-  char ssl_crl[FN_REFLEN], ssl_crlpath[FN_REFLEN];
-  my_bool ssl_verify_server_cert; /* MUST be my_bool, see mysql_option() */
 
   my_off_t master_log_pos;
   File fd; // we keep the file open, so we need to remember the file pointer
@@ -254,9 +256,9 @@ class Master_info : public Slave_reporting_capability
   */
   enum_binlog_checksum_alg checksum_alg_before_fd;
   /** pause duration between each connection retry */
-  uint connect_retry;
+  OptionalIntConfig<::master_connect_retry> &connect_retry= master_connect_retry;
   /** per-slave @ref master_retry_count */
-  ulong retry_count;
+  OptionalIntConfig<::master_retry_count> &retry_count= master_retry_count;
   /** count of connects the most-recent (or the current) connection has tried */
   ulong connects_tried;
 #ifndef DBUG_OFF
@@ -289,7 +291,6 @@ class Master_info : public Slave_reporting_capability
     events should happen before fsyncing.
   */
   uint sync_counter;
-  float heartbeat_period;         // interface with CHANGE MASTER or master.info
   ulonglong received_heartbeats;  // counter of received heartbeat events
   DYNAMIC_ARRAY ignore_server_ids;
   ulong master_id;
@@ -305,7 +306,7 @@ class Master_info : public Slave_reporting_capability
     Note that you can not change the numeric values of these, they are used
     in master.info.
   */
-  enum enum_using_gtid using_gtid;
+  master_use_gtid_t &using_gtid= master_use_gtid;
 
   /*
     This GTID position records how far we have fetched into the relay logs.
@@ -398,13 +399,6 @@ class Master_info : public Slave_reporting_capability
     at time its alter info struct is about to be appended to the list.
   */
   bool is_shutdown= false;
-
-  /*
-    A replica will default to Slave_Pos for using Using_Gtid; however, we
-    first need to test if the master supports GTIDs. If not, fall back to 'No'.
-    Cache the value so future RESET SLAVE commands don't revert to Slave_Pos.
-  */
-  bool master_supports_gtid= true;
 
   /*
     When TRUE, transition this server from being an active master to a slave.

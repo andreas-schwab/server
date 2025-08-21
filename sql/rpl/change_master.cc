@@ -18,6 +18,7 @@
 #include "change_master.hh"
 #include <string_view>   // Key type of @ref MASTER_INFO_MAP
 #include <unordered_map> // Type of @ref MASTER_INFO_MAP
+#include <unordered_set> // seen set in `load_from()`
 #include <charconv>      // std::from/to_chars
 #include "../slave.h"    // init_str/floatvar_from_file
 
@@ -79,13 +80,11 @@ template<const char *&mariadbd_option>
 const char *
 ChangeMaster::SSLPathConfig<mariadbd_option>::operator=(const char *value)
 {
-  if (value)
+  if (value) // not `nullptr`
   {
     this->value[1]= false; // not default
     strmake_buf(this->value, value);
   }
-  else // `nullptr`
-    set_default();
   return this->value;
 }
 template<const char *&mariadbd_option>
@@ -133,9 +132,15 @@ ChangeMaster::master_use_gtid_t::operator enum_master_use_gtid()
 struct mem_fn
 {
   std::function<Persistent &(ChangeMaster *connection)> get;
+  mem_fn(): get() {}
   template<typename M> mem_fn(M ChangeMaster::* pm):
     get([pm](ChangeMaster *self) -> Persistent & { return self->*pm; }) {}
 };
+/**
+  Guard agaist extra left-overs at the end of file,
+  in case a later update causes the file to shrink compared to earlier contents
+*/
+static constexpr const char *END_MARKER= "END_MARKER";
 /// An iterable for the `key=value` section of `@@master_info_file`
 // C++ default allocator to match that `mysql_execute_command()` uses `new`
 static const std::unordered_map<std::string_view, mem_fn> MASTER_INFO_MAP({
@@ -158,11 +163,72 @@ static const std::unordered_map<std::string_view, mem_fn> MASTER_INFO_MAP({
     For backward compatibility,
     keys should match the corresponding old property name in @ref Master_info.
   */
-  {"using_gtid",             &ChangeMaster::master_use_gtid              }
+  {"using_gtid",             &ChangeMaster::master_use_gtid              },
+  {END_MARKER, mem_fn()}
 });
 
-bool ChangeMaster::load_from(IO_CACHE *file) { return true; }
-/// Currently only appends the `file` with those in @ref MASTER_INFO_MAP
+/// Repurpose the trailing `\0` spot to prepare for the `=` or `\n`
+static constexpr size_t MAX_KEY_SIZE= sizeof("ssl_verify_server_cert");
+static const decltype(MASTER_INFO_MAP)::const_iterator KEY_NOT_FOUND=
+  MASTER_INFO_MAP.cend(); // `constexpr` in C++26
+bool ChangeMaster::load_from(IO_CACHE *file)
+{
+  /**
+    10.0 does not have the `END_MARKER` before any left-overs at the
+    end of the file. So ignore any but the first occurrence of a key.
+  */
+  std::unordered_set<const char *> seen{};
+  /* Parse additional `key=value` lines
+    The "value" can then be parsed individually after consuming the`key=`.
+  */
+  while (true)
+  {
+    bool found_equal= false;
+    char key[MAX_KEY_SIZE];
+    // Modified from the old `read_mi_key_from_file()`
+    for (size_t i=0; i < MAX_KEY_SIZE; ++i)
+    {
+      switch (char c= my_b_get(file)) {
+      case my_b_EOF:
+        return true;
+      case '=':
+        found_equal= true;
+      // fall-through
+      case '\n':
+      {
+        decltype(MASTER_INFO_MAP)::const_iterator find=
+          MASTER_INFO_MAP.find(std::string_view(
+            key,
+            i // size = exclusive end index of the string
+          ));
+        // The "unknown" lines would be ignored to facilitate downgrades.
+        if (find != KEY_NOT_FOUND)
+        {
+          const char *key= find->first.data();
+          if (key == END_MARKER)
+            return false;
+          else if (seen.insert(key).second) // if no previous insertion
+          {
+            Persistent &config= find->second.get(this);
+            /*
+              Keys that support saving the `DEFAULT` will represent the
+              `DEFAULT` by omitting the `=value` part; though here we allow
+              them to include the `=value` part for non-`DEFAULT` too.
+            */
+            if (found_equal ? config.load_from(file) : config.set_default())
+              sql_print_error("Failed to initialize master info %s", key);
+          }
+        }
+        goto break_for;
+      }
+      default:
+        key[i]= c;
+      }
+    }
+    break_for:
+  }
+}
+
 void ChangeMaster::save_to(IO_CACHE *file)
 {
   /*
@@ -173,11 +239,17 @@ void ChangeMaster::save_to(IO_CACHE *file)
   {
     my_b_write(file, (const uchar *)"using_gtid=", sizeof("using_gtid"));
     master_use_gtid.save_to(file);
+    my_b_write_byte(file, '\n');
   }
   for (auto &[key, member]: MASTER_INFO_MAP)
   {
     // The others only need to save a key to mark that they're set to `DEFAULT`.
-    if (member.get(this).is_default())
+    if (static_cast<bool>(member.get) && member.get(this).is_default())
+    {
       my_b_write(file, (const uchar *)key.data(), key.size());
+      my_b_write_byte(file, '\n');
+    }
   }
+  my_b_write(file, (const uchar *)END_MARKER, sizeof(END_MARKER));
+  my_b_write_byte(file, '\n');
 }

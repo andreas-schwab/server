@@ -1687,6 +1687,7 @@ static int get_master_version_and_clock(MYSQL* mysql, Master_info* mi)
   MYSQL_ROW master_row;
   uint full_version= mysql_get_server_version(mysql);
   uint version= full_version/ 10000;
+  float heartbeat_period= mi->master_heartbeat_period;
   DBUG_ENTER("get_master_version_and_clock");
 
   /*
@@ -2069,7 +2070,7 @@ when it try to get the value of TIME_ZONE global variable from master.";
     }
   }
 
-  if (mi->heartbeat_period != 0.0)
+  if (heartbeat_period != 0.0)
   {
     const char query_format[]= "SET @master_heartbeat_period= %llu";
     char query[sizeof(query_format) + 32];
@@ -2077,7 +2078,7 @@ when it try to get the value of TIME_ZONE global variable from master.";
        the period is an ulonglong of nano-secs. 
     */
     my_snprintf(query, sizeof(query), query_format,
-                (ulonglong) (mi->heartbeat_period*1000000000UL));
+                static_cast<ulonglong>(heartbeat_period*1000000000ULL));
 
     DBUG_EXECUTE_IF("simulate_slave_heartbeat_network_error",
                     { static ulong dbug_count= 0;
@@ -2296,7 +2297,7 @@ past_checksum:
 after_set_capability:
 #endif
 
-  if (!(mi->master_supports_gtid= version >= 10))
+  if (!(mi->master_use_gtid.gtid_supported= version >= 10))
   {
     sql_print_information(
         "Slave I/O thread: Falling back to Using_Gtid=No because "
@@ -2988,16 +2989,18 @@ void store_master_info(THD *thd, Master_info *mi, TABLE *table,
   store_string_or_null(field++, mi->rli.until_log_name);
   (*field++)->store((ulonglong) mi->rli.until_log_pos, true);
 
-#ifdef HAVE_OPENSSL
-  (*field++)->store(mi->ssl ? &msg_yes : &msg_no, &my_charset_bin);
-#else
-  (*field++)->store(mi->ssl ? &msg_ignored: &msg_no, &my_charset_bin);
-#endif
-  store_string_or_null(field++, mi->ssl_ca);
-  store_string_or_null(field++, mi->ssl_capath);
-  store_string_or_null(field++, mi->ssl_cert);
-  store_string_or_null(field++, mi->ssl_cipher);
-  store_string_or_null(field++, mi->ssl_key);
+  (*field++)->store(mi->master_ssl ?
+    #ifdef HAVE_OPENSSL
+      &msg_yes
+    #else
+      &msg_ignored
+    #endif
+  : &msg_no, &my_charset_bin);
+  store_string_or_null(field++, mi->master_ssl_ca);
+  store_string_or_null(field++, mi->master_ssl_capath);
+  store_string_or_null(field++, mi->master_ssl_cert);
+  store_string_or_null(field++, mi->master_ssl_cipher);
+  store_string_or_null(field++, mi->master_ssl_key);
 
   /*
     Seconds_Behind_Master: if SQL thread is running and I/O thread is
@@ -3049,7 +3052,7 @@ void store_master_info(THD *thd, Master_info *mi, TABLE *table,
   else
     (*field++)->set_null();
 
-  (*field++)->store(mi->ssl_verify_server_cert? &msg_yes : &msg_no,
+  (*field++)->store(mi->master_ssl_verify_server_cert? &msg_yes : &msg_no,
                     &my_charset_bin);
 
   // Last_IO_Errno
@@ -3066,9 +3069,9 @@ void store_master_info(THD *thd, Master_info *mi, TABLE *table,
   (*field++)->store((uint32) mi->master_id, true);
   // SQL_Delay
   // Master_Ssl_Crl
-  store_string_or_null(field++, mi->ssl_crl);
+  store_string_or_null(field++, mi->master_ssl_crl);
   // Master_Ssl_Crlpath
-  store_string_or_null(field++, mi->ssl_crlpath);
+  store_string_or_null(field++, mi->master_ssl_crlpath);
   // Using_Gtid
   store_string_or_null(field++, mi->using_gtid_astext(mi->using_gtid));
   // Gtid_IO_Pos
@@ -3114,7 +3117,7 @@ void store_master_info(THD *thd, Master_info *mi, TABLE *table,
   (*field++)->store((ulonglong) mi->rli.max_relay_log_size, true);
   (*field++)->store(mi->rli.executed_entries, true);
   (*field++)->store((uint)      mi->received_heartbeats, true);
-  (*field++)->store((double)    mi->heartbeat_period);
+  (*field++)->store((double)    mi->master_heartbeat_period);
   (*field++)->store(gtid_pos->ptr(), gtid_pos->length(), &my_charset_bin);
 
   /*

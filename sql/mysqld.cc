@@ -782,7 +782,6 @@ File_parser_dummy_hook file_parser_dummy_hook;
 
 /* replication parameters */
 uint report_port= 0;
-ulong master_retry_count=100000;
 char *master_info_file;
 char *relay_log_info_file, *report_user, *report_password, *report_host;
 char *opt_relay_logname = 0, *opt_relaylog_index_name=0;
@@ -6821,7 +6820,7 @@ struct my_option my_long_options[]=
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"master-retry-count", 0,
    "The number of tries the slave will make to connect to the master before giving up",
-   &master_retry_count, &master_retry_count, 0, GET_ULONG,
+   &master_retry_count, &master_retry_count, 0, GET_ULL,
    REQUIRED_ARG, static_cast<longlong>(master_retry_count), 0, 0, 0, 0, 0},
 #ifdef HAVE_REPLICATION
   {"init-rpl-role", 0, "Set the replication role",

@@ -33,16 +33,15 @@ static void init_master_log_pos(Master_info* mi);
 Master_info::Master_info(LEX_CSTRING *connection_name_arg,
                          bool is_slave_recovery)
   :Slave_reporting_capability("I/O"),
-   ssl(1), ssl_verify_server_cert(1), fd(-1), io_thd(0),
+   fd(-1), io_thd(0),
    rli(is_slave_recovery), port(MYSQL_PORT),
    checksum_alg_before_fd(BINLOG_CHECKSUM_ALG_UNDEF),
-   connect_retry(DEFAULT_CONNECT_RETRY), retry_count(master_retry_count),
    connects_tried(0), inited(0), abort_slave(0),
    slave_running(MYSQL_SLAVE_NOT_RUN), slave_run_id(0),
    clock_diff_with_master(0),
-   sync_counter(0), heartbeat_period(0), received_heartbeats(0),
+   sync_counter(0), received_heartbeats(0),
    master_id(0), prev_master_id(0),
-   using_gtid(USE_GTID_SLAVE_POS), events_queued_since_last_gtid(0),
+   events_queued_since_last_gtid(0),
    gtid_reconnect_event_skip_count(0), gtid_event_seen(false),
    in_start_all_slaves(0), in_stop_all_slaves(0), in_flush_all_relay_logs(0),
    users(0), killed(0),
@@ -51,9 +50,6 @@ Master_info::Master_info(LEX_CSTRING *connection_name_arg,
 {
   char *tmp;
   host[0] = 0; user[0] = 0; password[0] = 0;
-  ssl_ca[0]= 0; ssl_capath[0]= 0; ssl_cert[0]= 0;
-  ssl_cipher[0]= 0; ssl_key[0]= 0;
-  ssl_crl[0]= 0; ssl_crlpath[0]= 0;
 
   /*
     Store connection name and lower case connection name
@@ -197,104 +193,21 @@ void Master_info::clear_in_memory_info(bool all)
   }
 }
 
-
-const char *
-Master_info::using_gtid_astext(enum enum_using_gtid arg)
-{
-  switch (arg)
-  {
-  case USE_GTID_NO:
-    return "No";
-  case USE_GTID_SLAVE_POS:
-    return "Slave_Pos";
-  default:
-    DBUG_ASSERT(arg == USE_GTID_CURRENT_POS);
-    return "Current_Pos";
-  }
-}
-
-
 void init_master_log_pos(Master_info* mi)
 {
+  float heartbeat_period;
   DBUG_ENTER("init_master_log_pos");
-
   mi->master_log_name[0] = 0;
   mi->master_log_pos = BIN_LOG_HEADER_SIZE;             // skip magic number
-  if (mi->master_supports_gtid)
-  {
-    mi->using_gtid= Master_info::USE_GTID_SLAVE_POS;
-  }
+  mi->master_use_gtid.set_default();
   mi->gtid_current_pos.reset();
   mi->events_queued_since_last_gtid= 0;
   mi->gtid_reconnect_event_skip_count= 0;
   mi->gtid_event_seen= false;
-
-  /* 
-    always request heartbeat unless master_heartbeat_period is set
-    explicitly zero.  Here is the default value for heartbeat period
-    if CHANGE MASTER did not specify it.  (no data loss in conversion
-    as hb period has a max)
-  */
-  mi->heartbeat_period= (float) MY_MIN(SLAVE_MAX_HEARTBEAT_PERIOD,
-                                    (slave_net_timeout/2.0));
-  DBUG_ASSERT(mi->heartbeat_period > (float) 0.001
-              || mi->heartbeat_period == 0);
-
+  mi->master_heartbeat_period.set_default();
+  heartbeat_period= mi->master_heartbeat_period;
+  DBUG_ASSERT(heartbeat_period > (float) 0.001 || heartbeat_period == 0);
   DBUG_VOID_RETURN;
-}
-
-/**
-  Parses the IO_CACHE for "key=" and returns the "key".
-  If no '=' found, returns the whole line (for END_MARKER).
-
-  @param key      [OUT]               Key buffer
-  @param max_size [IN]                Maximum buffer size
-  @param f        [IN]                IO_CACHE file
-  @param found_equal [OUT]            Set true if a '=' was found.
-
-  @retval 0                           Either "key=" or '\n' found
-  @retval 1                           EOF
-*/
-static int
-read_mi_key_from_file(char *key, int max_size, IO_CACHE *f, bool *found_equal)
-{
-  int i= 0, c;
-
-  DBUG_ENTER("read_key_from_file");
-
-  *found_equal= false;
-  if (max_size <= 0)
-    DBUG_RETURN(1);
-  for (;;)
-  {
-    if (i >= max_size-1)
-    {
-      key[i] = '\0';
-      DBUG_RETURN(0);
-    }
-    c= my_b_get(f);
-    if (c == my_b_EOF)
-    {
-      DBUG_RETURN(1);
-    }
-    else if (c == '\n')
-    {
-      key[i]= '\0';
-      DBUG_RETURN(0);
-    }
-    else if (c == '=')
-    {
-      key[i]= '\0';
-      *found_equal= true;
-      DBUG_RETURN(0);
-    }
-    else
-    {
-      key[i]= c;
-      ++i;
-    }
-  }
-  /* NotReached */
 }
 
 enum {
@@ -454,7 +367,7 @@ file '%s')", fname);
     }
 
     mi->fd = fd;
-    int port, connect_retry, master_log_pos, lines;
+    int port, master_log_pos, lines;
     int ssl= 0, ssl_verify_server_cert= 0;
     float master_heartbeat_period= 0.0;
     char *first_non_digit;
@@ -508,8 +421,7 @@ file '%s')", fname);
         init_strvar_from_file(mi->password, sizeof(mi->password),
                               &mi->file, 0) ||
         init_intvar_from_file(&port, &mi->file, MYSQL_PORT) ||
-        init_intvar_from_file(&connect_retry, &mi->file,
-                              DEFAULT_CONNECT_RETRY))
+        mi->master_connect_retry.load_from(&mi->file))
       goto errwithmsg;
 
     /*
@@ -520,17 +432,12 @@ file '%s')", fname);
      */
     if (lines >= LINES_IN_MASTER_INFO_WITH_SSL)
     {
-      if (init_intvar_from_file(&ssl, &mi->file, 0) ||
-          init_strvar_from_file(mi->ssl_ca, sizeof(mi->ssl_ca),
-                                &mi->file, 0) ||
-          init_strvar_from_file(mi->ssl_capath, sizeof(mi->ssl_capath),
-                                &mi->file, 0) ||
-          init_strvar_from_file(mi->ssl_cert, sizeof(mi->ssl_cert),
-                                &mi->file, 0) ||
-          init_strvar_from_file(mi->ssl_cipher, sizeof(mi->ssl_cipher),
-                                &mi->file, 0) ||
-          init_strvar_from_file(mi->ssl_key, sizeof(mi->ssl_key),
-                                &mi->file, 0))
+      if (mi->master_ssl       .load_from(&mi->file) ||
+          mi->master_ssl_ca    .load_from(&mi->file) ||
+          mi->master_ssl_capath.load_from(&mi->file) ||
+          mi->master_ssl_cert  .load_from(&mi->file) ||
+          mi->master_ssl_cipher.load_from(&mi->file) ||
+          mi->master_ssl_key   .load_from(&mi->file) )
         goto errwithmsg;
 
       /*
@@ -538,7 +445,7 @@ file '%s')", fname);
         in the file
       */
       if (lines >= LINE_FOR_MASTER_SSL_VERIFY_SERVER_CERT &&
-          init_intvar_from_file(&ssl_verify_server_cert, &mi->file, 0))
+          mi->master_ssl_verify_server_cert.load_from(&mi->file))
         goto errwithmsg;
       /*
         Starting from 6.0 master_heartbeat_period might be
@@ -578,12 +485,11 @@ file '%s')", fname);
         mi->retry_count = atol(buf);
       }
 
-      if (lines >= LINE_FOR_SSL_CRLPATH &&
-	  (init_strvar_from_file(mi->ssl_crl, sizeof(mi->ssl_crl),
-                                 &mi->file, "") ||
-	   init_strvar_from_file(mi->ssl_crlpath, sizeof(mi->ssl_crlpath),
-                                 &mi->file, "")))
-	  goto errwithmsg;
+      if (lines >= LINE_FOR_SSL_CRLPATH && (
+        mi->master_ssl_crl    .load_from(&mi->file) ||
+        mi->master_ssl_crlpath.load_from(&mi->file)
+      ))
+        goto errwithmsg;
 
       /*
         Starting with MariaDB 10.0, we use a key=value syntax, which is nicer
@@ -594,45 +500,19 @@ file '%s')", fname);
       */
       if (lines >= LINE_FOR_LAST_MYSQL_FUTURE)
       {
-        uint i;
-        bool got_eq;
-        bool seen_using_gtid= false;
         bool seen_do_domain_ids=false, seen_ignore_domain_ids=false;
-
         /* Skip lines used by / reserved for MySQL >= 5.6. */
-        for (i= LINE_FOR_FIRST_MYSQL_5_6; i <= LINE_FOR_LAST_MYSQL_FUTURE; ++i)
+        for (size_t i= LINE_FOR_FIRST_MYSQL_5_6; i <= LINE_FOR_LAST_MYSQL_FUTURE; ++i)
         {
           if (init_strvar_from_file(buf, sizeof(buf), &mi->file, ""))
           goto errwithmsg;
         }
-
         /*
-          Parse any extra key=value lines. read_key_from_file() parses the file
-          for "key=" and returns the "key" if found. The "value" can then the
-          parsed on case by case basis. The "unknown" lines would be ignored to
-          facilitate downgrades.
-          10.0 does not have the END_MARKER before any left-overs at the end
-          of the file. So ignore any but the first occurrence of a key.
+          `lines` is only the number of fixed-position entries.
+          Proceed with `key=value` pairs without it
         */
         while (!read_mi_key_from_file(buf, sizeof(buf), &mi->file, &got_eq))
         {
-          if (got_eq && !seen_using_gtid && !strcmp(buf, "using_gtid"))
-          {
-            int val;
-            if (!init_intvar_from_file(&val, &mi->file, 0))
-            {
-              if (val == Master_info::USE_GTID_CURRENT_POS)
-                mi->using_gtid= Master_info::USE_GTID_CURRENT_POS;
-              else if (val == Master_info::USE_GTID_SLAVE_POS)
-                mi->using_gtid= Master_info::USE_GTID_SLAVE_POS;
-              else
-                mi->using_gtid= Master_info::USE_GTID_NO;
-              seen_using_gtid= true;
-            } else {
-              sql_print_error("Failed to initialize master info using_gtid");
-              goto errwithmsg;
-            }
-          }
           else if (got_eq && !seen_do_domain_ids && !strcmp(buf, "do_domain_ids"))
           {
             if (mi->domain_id_filter.init_ids(&mi->file,
@@ -655,20 +535,12 @@ file '%s')", fname);
             }
             seen_ignore_domain_ids= true;
           }
-          else if (!got_eq && !strcmp(buf, "END_MARKER"))
-          {
-            /*
-              Guard agaist extra left-overs at the end of file, in case a later
-              update causes the file to shrink compared to earlier contents.
-            */
-            break;
-          }
         }
       }
     }
 
 #ifndef HAVE_OPENSSL
-    if (ssl)
+    if (mi->master_ssl)
       sql_print_warning("SSL information in the master info file "
                       "('%s') are ignored because this MySQL slave was "
                       "compiled without SSL support.", fname);
@@ -680,10 +552,10 @@ file '%s')", fname);
     */
     mi->master_log_pos= (my_off_t) master_log_pos;
     mi->port= (uint) port;
-    mi->connect_retry= (uint) connect_retry;
-    mi->ssl= (my_bool) ssl;
-    mi->ssl_verify_server_cert= ssl_verify_server_cert;
-    mi->heartbeat_period= MY_MIN(SLAVE_MAX_HEARTBEAT_PERIOD, master_heartbeat_period);
+    mi->master_ssl= ssl;
+    mi->master_ssl_verify_server_cert= ssl_verify_server_cert;
+    mi->master_heartbeat_period=
+      MY_MIN(SLAVE_MAX_HEARTBEAT_PERIOD, master_heartbeat_period);
   }
   DBUG_PRINT("master_info",("log_file_name: %s  position: %ld",
                             mi->master_log_name,
@@ -728,7 +600,6 @@ int flush_master_info(Master_info* mi,
                       bool need_lock_relay_log)
 {
   IO_CACHE* file = &mi->file;
-  char lbuf[22];
   int err= 0;
 
   DBUG_ENTER("flush_master_info");
@@ -819,26 +690,30 @@ int flush_master_info(Master_info* mi,
      contents of file). But because of number of lines in the first line
      of file we don't care about this garbage.
   */
-  char heartbeat_buf[FLOATING_POINT_BUFFER];
-  my_fcvt(mi->heartbeat_period, 3, heartbeat_buf, NULL);
   my_b_seek(file, 0L);
-  my_b_printf(file,
-              "%u\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%s\n%s\n%s\n%s\n%s\n%d\n%s\n%s\n%s\n%s\n%d\n%s\n%s\n"
-              "\n\n\n\n\n\n\n\n\n\n\n"
-              "using_gtid=%d\n"
-              "do_domain_ids=%s\n"
-              "ignore_domain_ids=%s\n"
-              "END_MARKER\n",
+  my_b_printf(file, "%u\n%s\n%llu\n%s\n%s\n%s\n%d\n",
               LINES_IN_MASTER_INFO,
-              mi->master_log_name, llstr(mi->master_log_pos, lbuf),
-              mi->host, mi->user,
-              mi->password, mi->port, mi->connect_retry,
-              (int)(mi->ssl), mi->ssl_ca, mi->ssl_capath, mi->ssl_cert,
-              mi->ssl_cipher, mi->ssl_key, mi->ssl_verify_server_cert,
-              heartbeat_buf, "", ignore_server_ids_buf,
-              "", mi->retry_count,
-              mi->ssl_crl, mi->ssl_crlpath, mi->using_gtid,
+              mi->master_log_name, mi->master_log_pos,
+              mi->host, mi->user, mi->password, mi->port);
+  mi->master_connect_retry         .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl                   .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_ca                .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_capath            .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_cert              .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_cipher            .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_key               .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_verify_server_cert.save_to(file); my_b_write_byte(file, '\n');
+  mi->master_heartbeat_period      .save_to(file);
+  my_b_printf(file, "\n\n%s\n\n", ignore_server_ids_buf);
+  mi->master_retry_count.save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_crl    .save_to(file); my_b_write_byte(file, '\n');
+  mi->master_ssl_crlpath.save_to(file); my_b_write_byte(file, '\n');
+  my_b_printf(file,
+              "\n\n\n\n\n\n\n\n\n\n\n"
+              "do_domain_ids=%s\n"
+              "ignore_domain_ids=%s\n",
               do_domain_ids_buf, ignore_domain_ids_buf);
+  mi->save_to(file);
   err= flush_io_cache(file);
   if (sync_masterinfo_period && !err &&
       ++(mi->sync_counter) >= sync_masterinfo_period)
@@ -2115,14 +1990,15 @@ void setup_mysql_connection_for_master(MYSQL *mysql, Master_info *mi,
   mysql_options(mysql, MYSQL_OPT_READ_TIMEOUT, (char *) &timeout);
 
 #ifdef HAVE_OPENSSL
-  if (mi->ssl)
+  if (mi->master_ssl)
   {
-    mysql_ssl_set(mysql, mi->ssl_key, mi->ssl_cert, mi->ssl_ca, mi->ssl_capath,
-                  mi->ssl_cipher);
-    mysql_options(mysql, MYSQL_OPT_SSL_CRL, mi->ssl_crl);
-    mysql_options(mysql, MYSQL_OPT_SSL_CRLPATH, mi->ssl_crlpath);
+    mysql_ssl_set(mysql,
+                  mi->master_ssl_key, mi->master_ssl_cert, mi->master_ssl_ca,
+                  mi->master_ssl_capath, mi->master_ssl_cipher);
+    mysql_options(mysql, MYSQL_OPT_SSL_CRL, mi->master_ssl_crl);
+    mysql_options(mysql, MYSQL_OPT_SSL_CRLPATH, mi->master_ssl_crlpath);
     mysql_options(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT,
-                  &mi->ssl_verify_server_cert);
+                  &mi->master_ssl_verify_server_cert);
   }
   else
 #endif

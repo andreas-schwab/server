@@ -23,6 +23,8 @@
 enum struct tril { NO, YES, DEFAULT= -1 };
 /// Enum for @ref ChangeMaster::master_use_gtid
 enum struct enum_master_use_gtid { NO, CURRENT_POS, SLAVE_POS, DEFAULT= -1 };
+inline const char *const NAME_MASTER_USE_GTID[]=
+  {"No", "Current_Pos", "Slave_Pos", nullptr};
 
 // `mariadbd` Options for @ref ChangeMaster::WithDefault
 inline uint32_t master_connect_retry= 60;
@@ -43,6 +45,9 @@ inline uint64_t master_retry_count= 100'000;
 struct Persistent
 {
   virtual ~Persistent()= default;
+  inline virtual bool is_default() { return false; }
+  /// @return `true` if the item is mandatory and couldn't provide a default
+  inline virtual bool set_default() { return true; }
   /** set the value by reading a line from the IO and consume the `\n`
     @return `false` if successful or `true` if error
     @post is_default() is `false`
@@ -53,9 +58,6 @@ struct Persistent
      to represent using the default value.)
   */
   virtual void save_to(IO_CACHE *file)= 0;
-  inline virtual bool is_default() { return false; }
-  /// @return `true` if the item is mandatory and couldn't provide a default
-  inline virtual bool set_default() { return true; }
   inline Persistent() { set_default(); }
 };
 
@@ -69,7 +71,7 @@ struct ChangeMaster: Persistent
   {
     V value;
     virtual operator T() = 0;
-    inline V &operator=(T &value)
+    inline V &operator=(const T &value)
       { return this->value= value; }
     inline V &operator=(T &&value)
       { return this->value= std::forward<T>(value); }
@@ -85,6 +87,7 @@ struct ChangeMaster: Persistent
     virtual bool load_from(IO_CACHE *file) override;
     virtual void save_to(IO_CACHE *file) override;
   };
+
   /** for *optional* integers
     @see master_connect_retry
     @see master_retry_count
@@ -99,7 +102,7 @@ struct ChangeMaster: Persistent
     inline virtual bool set_default() override
     {
       this->value.reset();
-      return true;
+      return false;
     }
     inline virtual operator I() override
       { return this->value.value_or(mariadbd_option); }
@@ -121,6 +124,7 @@ struct ChangeMaster: Persistent
       return this->is_default() ?
         static_cast<tril>(mariadbd_option) : this->value;
     }
+    inline operator bool() { return *this == tril::NO; }
     inline tril &operator=(bool value)
       { return *this= static_cast<tril>(value); }
   };
@@ -134,6 +138,7 @@ struct ChangeMaster: Persistent
     bool is_default() override;
     bool set_default() override;
     inline operator const char *() override { return this->value; }
+    /// Does nothing if `value` is `nullptr`
     const char *operator=(const char *value);
     bool load_from(IO_CACHE *file) override;
     void save_to(IO_CACHE *file) override;
@@ -156,6 +161,11 @@ struct ChangeMaster: Persistent
   /// Singleton class for @ref master_use_gtid
   struct master_use_gtid_t: IntConfig<enum_master_use_gtid>
   {
+    /**
+      The default `master_use_gtid` is normally `SLAVE_POS`; however, if the
+      master does not supports GTIDs, we fall back to `NO`. This field caches
+      the check so future RESET SLAVE commands don't revert to `SLAVE_POS`.
+    */
     bool gtid_supported= true;
     inline bool is_default() override
       { return this->value <= enum_master_use_gtid::DEFAULT; }
@@ -183,6 +193,14 @@ struct ChangeMaster: Persistent
   master_use_gtid_t master_use_gtid;
   OptionalIntConfig<::master_retry_count> master_retry_count;
 
+  /**
+    Load all configs (currently, only those in the `key-value` section that
+    support the `DEFAULT` keyword) from the file, stopping at the `END_MARKER`
+  */
   bool load_from(IO_CACHE *file) override;
+  /**
+    Save all configs (currently, only those in the `key-value` section that
+    support the `DEFAULT` keyword), to the file, including the `END_MARKER`
+  */
   void save_to(IO_CACHE *file) override;
 };
