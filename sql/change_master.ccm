@@ -37,13 +37,20 @@ enum struct enum_master_use_gtid { NO, CURRENT_POS, SLAVE_POS, DEFAULT= -1 };
 /// String names for non-@ref ChangeMaster::master_use_gtid::DEFAULT values
 inline const char *master_use_gtid_names[]=
   {"No", "Current_Pos", "Slave_Pos", nullptr};
+/// @ref master_use_gtid does not support negative integers; use this instead
+inline static constexpr ulong OPT_MASTER_USE_GTID_DEFAULT=
+  std::numeric_limits<int>::max();
 
 /**
   `mariadbd` Options for @ref ChangeMaster::WithDefault
   @{
 */
 inline uint32_t master_connect_retry= 60;
-inline float master_heartbeat_period= -1.0;
+/**
+  `double` because `my_getopt` does not support `float`
+  (This is in practice a NULL-able DECIMAL(10,3).)
+*/
+inline double master_heartbeat_period= -1.0;
 inline bool master_ssl= true;
 inline const char *master_ssl_ca     = "";
 inline const char *master_ssl_capath = "";
@@ -53,7 +60,8 @@ inline const char *master_ssl_crlpath= "";
 inline const char *master_ssl_key    = "";
 inline const char *master_ssl_cipher = "";
 inline bool master_ssl_verify_server_cert= true;
-inline auto master_use_gtid= enum_master_use_gtid::DEFAULT;
+/// `ulong` is the data type `my_getopt` expects.
+inline auto master_use_gtid= static_cast<ulong>(enum_master_use_gtid::DEFAULT);
 inline uint64_t master_retry_count= 100'000;
 /// }@
 

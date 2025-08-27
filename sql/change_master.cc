@@ -40,10 +40,11 @@ void ChangeMaster::master_heartbeat_period_t::save_to(IO_CACHE *file)
 ChangeMaster::master_use_gtid_t::operator enum_master_use_gtid()
 {
   return is_default() ? (
-    ::master_use_gtid > enum_master_use_gtid::DEFAULT ?
-      ::master_use_gtid : gtid_supported ?
+    (::master_use_gtid < OPT_MASTER_USE_GTID_DEFAULT) ?
+      static_cast<enum_master_use_gtid>(::master_use_gtid) :
+      gtid_supported ?
         enum_master_use_gtid::SLAVE_POS : enum_master_use_gtid::NO
-    ) : mode;
+  ) : mode;
 }
 /// Replace this enum type with the integral type under its trench coat
 using use_gtid_t= std::underlying_type_t<enum_master_use_gtid>;

@@ -303,6 +303,10 @@ static TYPELIB tc_heuristic_recover_typelib=
   array_elements(tc_heuristic_recover_names)-1,"",
   tc_heuristic_recover_names, NULL
 };
+#ifdef HAVE_REPLICATION
+static TYPELIB master_use_gtid_typelib=
+  CREATE_TYPELIB_FOR(master_use_gtid_names);
+#endif
 
 const char *first_keyword= "first";
 const char *my_localhost= "localhost",
@@ -6818,11 +6822,85 @@ struct my_option my_long_options[]=
    "more than one storage engine, when binary log is disabled)",
    &opt_tc_log_file, &opt_tc_log_file, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
-  {"master-retry-count", 0,
-   "The number of tries the slave will make to connect to the master before giving up",
-   &master_retry_count, &master_retry_count, 0, GET_ULL,
-   REQUIRED_ARG, static_cast<longlong>(master_retry_count), 0, 0, 0, 0, 0},
 #ifdef HAVE_REPLICATION
+  {"master-connect-retry", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_CONNECT_RETRY, "
+   "the interval in integer seconds between each try to connect to the master",
+   &master_connect_retry, &master_connect_retry,
+   nullptr, GET_UINT, REQUIRED_ARG,
+   static_cast<longlong>(master_connect_retry), 0, 0, nullptr, 0, nullptr},
+  {"master-heartbeat-period", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_HEARTBEAT_PERIOD, "
+   "the interval in DECIMAL(10, 3) seconds between replication heartbeats; "
+   "the autoset value is @@slave_net_timeout/2 calculated on use",
+   &master_heartbeat_period, &master_heartbeat_period,
+   nullptr, GET_DOUBLE | GET_AUTO, REQUIRED_ARG,
+   // There were no heterogenous types back in your day.
+   static_cast<longlong>(getopt_double2ulonglong(master_heartbeat_period)),
+   static_cast<longlong>(getopt_double2ulonglong(0)),
+   getopt_double2ulonglong(SLAVE_MAX_HEARTBEAT_PERIOD), nullptr, 0, nullptr},
+  {"master-use-gtid", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_USE_GTID, "
+   "which specifies which GTID record (or neither) to start replicating from; "
+   "the autoset value is Slave_Pos, "
+   "or No if that master does not support GTIDs",
+   &master_use_gtid, &master_use_gtid,
+   &master_use_gtid_typelib, GET_ENUM | GET_AUTO, REQUIRED_ARG,
+   static_cast<longlong>(master_use_gtid), 0, 0, nullptr, 0, nullptr},
+  {"master-retry-count", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_RETRY_COUNT, "
+   "the number of tries to connect to the master before giving up",
+   &master_retry_count, &master_retry_count, 0, GET_ULL, REQUIRED_ARG,
+   static_cast<longlong>(master_retry_count), 0, 0, 0, 0, 0},
+  {"master-ssl", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL, "
+   "which is whether to use TLS to connect to the master",
+   &master_ssl, &master_ssl,
+   nullptr, GET_BOOL, NO_ARG, master_ssl, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-ca", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CA, "
+   "an optional path to a Certificate Authorities' "
+   "certificates file for TLS replication",
+   &master_ssl_ca, &master_ssl_ca,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-capath", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CAPATH, "
+   "an optional path to a directory of Certificate Authority's "
+   "certificate files for TLS replication, ",
+   &master_ssl_capath, &master_ssl_capath,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-cert", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CERT, "
+   "an optional path to the master's certificate for TLS replication",
+   &master_ssl_cert, &master_ssl_cert,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-cipher", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CIPHER, "
+   "a list of permitted ciphers for TLS replication",
+   &master_ssl_cipher, &master_ssl_cipher,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-crl", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CRL, "
+   "an optional path to a revoked certificates file for TLS replication",
+   &master_ssl_crl, &master_ssl_crl,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-crlpath", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_CRLPATH, "
+   "an optional path to a directory of revoked "
+   "certificate files for TLS replication",
+   &master_ssl_crlpath, &master_ssl_crlpath,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-key", 0,
+   "The DEFAULT value for the CHANGE MASTER option MASTER_SSL_KEY, "
+   "an optional path to the master's private key for TLS replication",
+   &master_ssl_key, &master_ssl_key,
+   nullptr, GET_STR, REQUIRED_ARG, 0, 0, 0, nullptr, 0, nullptr},
+  {"master-ssl-verify-server-cert", 0,
+   "The DEFAULT value for the CHANGE MASTER "
+   "option MASTER_SSL_VERIFY_SERVER_CERT, "
+   "which is whether to validate the master's certificate in TLS replication",
+   &master_ssl_verify_server_cert, &master_ssl_verify_server_cert, nullptr,
+   GET_BOOL, NO_ARG, master_ssl_verify_server_cert, 0, 0, nullptr, 0, nullptr},
   {"init-rpl-role", 0, "Set the replication role",
    &rpl_status, &rpl_status, &rpl_role_typelib,
    GET_ENUM, REQUIRED_ARG, RPL_AUTH_MASTER, 0, 0, 0, 0, 0},
@@ -8183,6 +8261,9 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
     else
       var->value_origin= sys_var::COMMAND_LINE;
   }
+  // Handle GET_AUTO for `master-heartbeat-period` and `master-use-gtid`
+  if (argument == autoset_my_option)
+    my_getopt_init_one_value(opt, opt->value, opt->def_value);
 
   switch(opt->id) {
   case '#':
