@@ -5266,4 +5266,13 @@ SET @obj1='{ "a": 1,"b": 2,"c": 3}';
 SELECT JSON_OBJECT_FILTER_KEYS (@obj1,@arr1);
 JSON_OBJECT_FILTER_KEYS (@obj1,@arr1)
 NULL
+SET character_set_database= default;
+SET CHARACTER SET default;
 # End of 11.2 Test
+# Beginning of 11.4 Test
+#
+# MDEV-33640: Server crashes at my_hash_free
+#
+SELECT JSON_SCHEMA_VALID('{"properties": "a_string": {"pattern": "^[5-9]$"}}}', '{"a_string": "8"}');
+ERROR HY000: Invalid value for keyword properties
+# End of 11.4 Test
