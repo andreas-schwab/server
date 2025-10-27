@@ -1,0 +1,31 @@
+# Test for crash on startup when trigger uses "SET NEW = OLD"
+# with old_mode=TRIGGERS_NEW_AND_OLD_ARE_ROW
+
+--source include/have_innodb.inc
+
+SET @@old_mode = TRIGGERS_NEW_AND_OLD_ARE_ROW;
+
+CREATE TABLE t1 (a INT);
+
+delimiter $;
+CREATE TRIGGER t1_bu BEFORE UPDATE ON t1
+FOR EACH ROW
+BEGIN
+  SET NEW = OLD;
+END$
+delimiter ;$
+
+# Verify trigger exists
+SHOW TRIGGERS;
+
+
+let $restart_file= $MYSQLTEST_VARDIR/tmp/mysqld.1.expect;
+--exec echo "wait" > $restart_file
+--shutdown_server
+--source include/wait_until_disconnected.inc
+-- exec echo "restart" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+-- enable_reconnect
+-- source include/wait_until_connected_again.inc
+
+DROP TRIGGER t1_bu;
+DROP TABLE t1;
