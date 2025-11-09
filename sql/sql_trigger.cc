@@ -119,39 +119,39 @@ Trigger_creation_ctx::create(THD *thd,
   bool invalid_creation_ctx= FALSE;
   myf utf8_flag= thd->get_utf8_flag();
 
-  if (resolve_charset(client_cs_name->str,
+  if (!client_cs_name ||
+      resolve_charset(client_cs_name->str,
                       thd->variables.character_set_client,
                       &client_cs, MYF(utf8_flag)))
   {
     sql_print_warning("Trigger for table '%s'.'%s': "
                       "invalid character_set_client value (%s).",
-                      (const char *) db_name,
-                      (const char *) table_name,
-                      (const char *) client_cs_name->str);
+                      db_name, table_name,
+                      client_cs_name ? client_cs_name->str : "");
 
     invalid_creation_ctx= TRUE;
   }
 
-  if (resolve_collation(connection_cl_name->str,
+  if (!connection_cl_name ||
+      resolve_collation(connection_cl_name->str,
                         thd->variables.collation_connection,
                         &connection_cl,MYF(utf8_flag)))
   {
     sql_print_warning("Trigger for table '%s'.'%s': "
                       "invalid collation_connection value (%s).",
-                      (const char *) db_name,
-                      (const char *) table_name,
-                      (const char *) connection_cl_name->str);
+                      db_name, table_name,
+                      connection_cl_name ? connection_cl_name->str : "");
 
     invalid_creation_ctx= TRUE;
   }
 
-  if (resolve_collation(db_cl_name->str, NULL, &db_cl, MYF(utf8_flag)))
+  if (!db_cl_name ||
+      resolve_collation(db_cl_name->str, NULL, &db_cl, MYF(utf8_flag)))
   {
     sql_print_warning("Trigger for table '%s'.'%s': "
                       "invalid database_collation value (%s).",
-                      (const char *) db_name,
-                      (const char *) table_name,
-                      (const char *) db_cl_name->str);
+                      db_name, table_name,
+                      db_cl_name ? db_cl_name->str : "");
 
     invalid_creation_ctx= TRUE;
   }
@@ -162,8 +162,7 @@ Trigger_creation_ctx::create(THD *thd,
                         Sql_condition::WARN_LEVEL_WARN,
                         ER_TRG_INVALID_CREATION_CTX,
                         ER_THD(thd, ER_TRG_INVALID_CREATION_CTX),
-                        (const char *) db_name,
-                        (const char *) table_name);
+                        db_name, table_name);
   }
 
   /*
