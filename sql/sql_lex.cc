@@ -2036,6 +2036,12 @@ int Lex_input_stream::lex_one_token(YYSTYPE *yylval, THD *thd)
   const uchar *const state_map= cs->state_map;
   const uchar *const ident_map= cs->ident_map;
 
+  if (thd->killed)
+  {
+    thd->send_kill_message();
+    return END_OF_INPUT;
+  }
+
   start_token();
   state= next_state;
   next_state= MY_LEX_OPERATOR_OR_IDENT;
@@ -5160,12 +5166,19 @@ bool st_select_lex::optimize_unflattened_subqueries(bool const_only)
       bool has_rand= false;
       for (SELECT_LEX *sl= un->first_select(); sl && !has_rand;
            sl= sl->next_select())
-        has_rand= sl->uncacheable & UNCACHEABLE_RAND;
+        has_rand= (sl->uncacheable & UNCACHEABLE_RAND);
       if (has_rand)
       {
         for (SELECT_LEX *sl= un->first_select(); sl; sl= sl->next_select())
           sl->uncacheable |= UNCACHEABLE_UNITED;
       }
+
+      /*
+        If any SELECT in the unit is marked as UNCACHEABLE_RAND, then the
+        unit itself should also be marked as UNCACHEABLE_RAND.
+      */
+      DBUG_ASSERT(has_rand ==
+                  static_cast<bool>(un->uncacheable & UNCACHEABLE_RAND));
 
       if (is_correlated_unit)
       {
@@ -11403,6 +11416,7 @@ SELECT_LEX_UNIT *LEX::parsed_select_expr_cont(SELECT_LEX_UNIT *unit,
   }
   last->link_neighbour(sel1);
   sel1->set_master_unit(unit);
+  unit->uncacheable|= sel1->uncacheable;
   sel1->set_linkage_and_distinct(unit_type, distinct);
   unit->pre_last_parse= last;
   return unit;
