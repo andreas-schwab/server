@@ -6821,11 +6821,11 @@ struct my_option my_long_options[]=
    "more than one storage engine, when binary log is disabled)",
    &opt_tc_log_file, &opt_tc_log_file, 0, GET_STR,
    REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+#ifdef HAVE_REPLICATION
   {"master-retry-count", 0,
    "The number of tries the slave will make to connect to the master before giving up",
    &master_retry_count, &master_retry_count, 0, GET_ULL,
    REQUIRED_ARG, static_cast<longlong>(master_retry_count), 0, 0, 0, 0, 0},
-#ifdef HAVE_REPLICATION
   {"init-rpl-role", 0, "Set the replication role",
    &rpl_status, &rpl_status, &rpl_role_typelib,
    GET_ENUM, REQUIRED_ARG, RPL_AUTH_MASTER, 0, 0, 0, 0, 0},

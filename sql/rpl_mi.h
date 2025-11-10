@@ -369,7 +369,7 @@ class Master_info: public MasterInfoFile, public Slave_reporting_capability
     first need to test if the master supports GTIDs. If not, fall back to 'No'.
     Cache the value so future RESET SLAVE commands don't revert to Slave_Pos.
   */
-  bool &master_supports_gtid= master_use_gtid.gtid_supported= true;
+  bool &master_supports_gtid= master_use_gtid.gtid_supported;
 
   /*
     When TRUE, transition this server from being an active master to a slave.

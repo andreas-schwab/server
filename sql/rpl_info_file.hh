@@ -18,6 +18,7 @@
 #ifndef RPL_INFO_FILE_HH
 #define RPL_INFO_FILE_HH
 
+#include <cstdint>     // uintN_t
 #include <charconv>    // std::from/to_chars and other helpers
 #include <functional>  // superclass of InfoFile::mem_fn
 #include <my_sys.h>    // IO_CACHE
@@ -254,7 +255,7 @@ protected:
       lines= default_lines;
     for (; i < lines; ++i)
     {
-      char c;
+      int c;
       if (i < fields.size()) // line known in the ` list
       {
         const mem_fn &pm= fields.begin()[i];

@@ -37,7 +37,7 @@ inline static constexpr uint32_t SLAVE_MAX_HEARTBEAT_PERIOD=
 inline static int change_master_id_cmp(const void *arg1, const void *arg2)
 {
   const ulong &id1= *(const ulong *)arg1, &id2= *(const ulong *)arg2;
-  return (id2 > id1) - (id2 < id1);
+  return (id1 > id2) - (id1 < id2);
 }
 
 /// enum for @ref MasterInfoFile::master_use_gtid
@@ -357,6 +357,7 @@ struct MasterInfoFile: InfoFile
     bool set_default() override
     {
       mode= enum_master_use_gtid::DEFAULT;
+      gtid_supported= true;
       return false;
     }
     /** @return
@@ -418,12 +419,20 @@ struct MasterInfoFile: InfoFile
       */
       char buf[IntIOCache::BUF_SIZE<uint32_t> + 3];
       size_t length= my_b_gets(file, buf, sizeof(buf));
-      if (!length ||
-          std::from_chars(buf, &buf[length], seconds,
-                          std::chars_format::fixed).ec != IntIOCache::ERRC_OK ||
-          seconds < 0 || seconds > SLAVE_MAX_HEARTBEAT_PERIOD)
+      if (!length)
         return true;
-      operator=(seconds / 1000);
+    #ifdef __clang__
+      // FIXME: floating-point variants of `std::from_chars()` not supported
+      char end;
+      if (sscanf(buf, "%lf%c", &seconds, &end) < 2 || end
+    #else
+      std::from_chars_result result=
+        std::from_chars(buf, &buf[length], seconds, std::chars_format::fixed);
+      if (result.ec != IntIOCache::ERRC_OK || *(result.ptr)
+    #endif
+            != '\n' || seconds < 0 || seconds > SLAVE_MAX_HEARTBEAT_PERIOD)
+        return true;
+      operator=(static_cast<uint32_t>(seconds / 1000));
       return false;
     }
     /**
