@@ -3382,6 +3382,31 @@ int cmp_quick_ranges(void *table_, const void *a_, const void *b_)
 
 
 /*
+  Given a field, set key_info->selective_key_parts[field_part_no] in every
+  non-clustered index that this field is a part of.
+*/
+
+void set_selective_key_parts(Field *field)
+{
+  key_map::Iterator it(field->part_of_key_not_clustered);
+  uint bit;
+  while ((bit= it++) != it.BITMAP_END)
+  {
+    KEY *key= &field->table->key_info[bit];
+    // Find the key part
+    for (uint kp=0; kp < key->user_defined_key_parts; kp++)
+    {
+      if (key->key_part[kp].field == field)
+      {
+        key->selective_key_parts |= key_part_map(1) << kp;
+        break;
+      }
+    }
+  }
+}
+
+
+/*
   Calculate the selectivity of the condition imposed on the rows of a table
 
   SYNOPSIS
@@ -3686,6 +3711,9 @@ bool calculate_cond_selectivity_for_table(THD *thd, TABLE *table, Item **cond)
               selectivity_for_column.add("selectivity_from_histogram",
                                          key->field->cond_selectivity);
             }
+
+            // Also set selective_key_parts
+            set_selective_key_parts(key->field);
           }
         }
       }

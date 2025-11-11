@@ -7863,6 +7863,39 @@ inline double use_found_constraint(double records)
 
 
 /*
+  Get the selectivity of ICP condition if one does a ref access on a given
+  index using given number of key_parts.
+
+  @param used_key_parts  Bitmap of key parts to be used. 
+                         0 means full index scan will be used (and so,no ICP)
+*/
+
+double get_icp_selectivity(const TABLE *table, uint key, 
+                           key_part_map used_key_parts)
+{
+  if (!used_key_parts)
+    return 1.0; // Full index scan and no ICP.
+
+  // TODO: check optimizer_switch flag and hint somewhere.
+  key_part_map sel_parts= (table->key_info[key].selective_key_parts & ~used_key_parts);
+  if (!sel_parts)
+    return 1.0;
+
+  Table_map_iterator it(sel_parts);
+  uint part;
+  double min_sel= 1.0;
+  KEY *key_info= &table->key_info[key];
+  while ((part= it.next_bit()) != it.BITMAP_END)
+  {
+    Field *field= table->field[key_info->key_part[part].field->field_index];
+    if (field->cond_selectivity < min_sel)
+      min_sel= field->cond_selectivity;
+  }
+  return min_sel;
+}
+
+
+/*
   Calculate the cost of reading a set of rows trough an index
 
   Logically this is identical to the code in multi_range_read_info_const()
@@ -7876,6 +7909,7 @@ inline double use_found_constraint(double records)
 */
 
 double cost_for_index_read(const THD *thd, const TABLE *table, uint key,
+                           uint key_parts,
                            ha_rows records, ha_rows worst_seeks)
 {
   DBUG_ENTER("cost_for_index_read");
@@ -7890,8 +7924,11 @@ double cost_for_index_read(const THD *thd, const TABLE *table, uint key,
     cost= file->keyread_time(key, 1, records);
   else
   {
+    // adjust cost due to ICP selectivity:
+    double icp_sel= get_icp_selectivity(table, key, key_parts);
+
     cost= ((file->keyread_time(key, 0, records) +
-            file->read_time(key, 1, MY_MIN(records, worst_seeks))));
+            icp_sel * file->read_time(key, 1, MY_MIN(records, worst_seeks))));
     if ((thd->variables.optimizer_adjust_secondary_key_costs &
          OPTIMIZER_ADJ_SEC_KEY_COST) &&
         file->is_clustering_key(0))
@@ -8415,7 +8452,7 @@ best_access_path(JOIN      *join,
               }
             }
             /* Limit the number of matched rows */
-            tmp= cost_for_index_read(thd, table, key, (ha_rows) records,
+            tmp= cost_for_index_read(thd, table, key, found_part, (ha_rows) records,
                                      (ha_rows) s->worst_seeks);
             records_for_key= (ha_rows) records;
             set_if_smaller(records_for_key, thd->variables.max_seeks_for_key);
@@ -8620,7 +8657,7 @@ best_access_path(JOIN      *join,
             }
 
             /* Limit the number of matched rows */
-            tmp= cost_for_index_read(thd, table, key, (ha_rows) records,
+            tmp= cost_for_index_read(thd, table, key, found_part, (ha_rows) records,
                                      (ha_rows) s->worst_seeks);
             records_for_key= (ha_rows) records;
             set_if_smaller(records_for_key, thd->variables.max_seeks_for_key);
@@ -12090,6 +12127,7 @@ static bool create_hj_key_for_table(JOIN *join, JOIN_TAB *join_tab,
   keyinfo->name.str= "$hj";
   keyinfo->name.length= 3;
   keyinfo->rec_per_key= (ulong*) thd->calloc(sizeof(ulong)*key_parts);
+  keyinfo->selective_key_parts= 0;
   if (!keyinfo->rec_per_key)
     DBUG_RETURN(TRUE);
   keyinfo->key_part= key_part_info;
@@ -20619,6 +20657,7 @@ bool Create_tmp_table::finalize(THD *thd,
     keyinfo->algorithm= HA_KEY_ALG_UNDEF;
     keyinfo->is_statistics_from_stat_tables= FALSE;
     keyinfo->name= group_key;
+    keyinfo->selective_key_parts= 0;
     ORDER *cur_group= m_group;
     for (; cur_group ; cur_group= cur_group->next, m_key_part_info++)
     {
@@ -20736,6 +20775,7 @@ bool Create_tmp_table::finalize(THD *thd,
     keyinfo->is_statistics_from_stat_tables= FALSE;
     keyinfo->read_stats= NULL;
     keyinfo->collected_stats= NULL;
+    keyinfo->selective_key_parts= 0;
 
     /*
       Needed by non-merged semi-joins: SJ-Materialized table must have a valid 
@@ -30724,7 +30764,8 @@ static bool get_range_limit_read_cost(const JOIN_TAB *tab,
 
         if (ref_rows > 0)
         {
-          double tmp= cost_for_index_read(tab->join->thd, table, keynr,
+          double tmp= cost_for_index_read(tab->join->thd, table, keynr, 
+                                          PREV_BITS(key_part_map, kp),
                                           ref_rows,
                                           (ha_rows) tab->worst_seeks);
           if (tmp < best_cost)
@@ -31129,7 +31170,7 @@ test_if_cheaper_ordering(bool in_join_optimizer,
             thd->variables.optimizer_adjust_secondary_key_costs|=
                 OPTIMIZER_ADJ_SEC_KEY_COST | OPTIMIZER_ADJ_DISABLE_MAX_SEEKS;
 
-            index_scan_time= cost_for_index_read(thd, table, nr,
+            index_scan_time= cost_for_index_read(thd, table, nr, 0,
                                                  table_records, HA_ROWS_MAX);
             index_scan_time+= rows2double(table_records) / TIME_FOR_COMPARE;
             thd->variables.optimizer_adjust_secondary_key_costs= save;
