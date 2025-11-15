@@ -18,7 +18,7 @@
 
 #ifdef HAVE_REPLICATION
 
-#include "rpl_master_info_file.hh"
+#include "rpl_master_info_file.h"
 #include "rpl_rli.h"
 #include "rpl_reporting.h"
 #include <my_sys.h>
@@ -149,7 +149,7 @@ typedef struct st_rows_event_tracker
 
 *****************************************************************************/
 
-class Master_info: public MasterInfoFile, public Slave_reporting_capability
+class Master_info: public Master_info_file, public Slave_reporting_capability
 {
  public:
   /// @deprecated use the new namespace instead
@@ -201,7 +201,7 @@ class Master_info: public MasterInfoFile, public Slave_reporting_capability
   LEX_CSTRING connection_name; 		/* User supplied connection name */
   LEX_CSTRING cmp_connection_name;	/* Connection name in lower case */
 
-  my_off_t &master_log_pos= MasterInfoFile::master_log_pos.value;
+  my_off_t &master_log_pos= Master_info_file::master_log_pos.value;
   File fd; // we keep the file open, so we need to remember the file pointer
 
   mysql_mutex_t data_lock, run_lock, sleep_lock, start_stop_lock, start_alter_lock, start_alter_list_lock;

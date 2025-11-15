@@ -6818,7 +6818,7 @@ static int connect_to_master(THD* thd, MYSQL* mysql, Master_info* mi,
       suppress_warnings= 0;
       mi->report(ERROR_LEVEL, last_errno, NULL,
                  "error %s to master '%s@%s:%d'"
-                 " - retry-time: %d  maximum-retries: %lu  message: %s",
+                 " - retry-time: %d  maximum-retries: %" PRIu64 "  message: %s",
                  (reconnect ? "reconnecting" : "connecting"),
                  mi->user, mi->host, mi->port,
                  static_cast<uint32_t>(mi->master_connect_retry),

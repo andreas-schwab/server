@@ -45,7 +45,7 @@ rpl_slave_state *rpl_global_gtid_slave_state;
 gtid_waiting rpl_global_gtid_waiting;
 
 Relay_log_info::Relay_log_info(bool is_slave_recovery, const char* thread_name)
-  :RelayLogInfoFile(), Slave_reporting_capability(thread_name),
+  :Relay_log_info_file(), Slave_reporting_capability(thread_name),
    replicate_same_server_id(::replicate_same_server_id),
    info_fd(-1), cur_log_fd(-1), relay_log(&sync_relaylog_period),
    sync_counter(0), is_relay_log_recovery(is_slave_recovery),

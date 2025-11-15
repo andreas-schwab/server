@@ -20,12 +20,11 @@
 
 #include <cstdint>     // uintN_t
 #include <charconv>    // std::from/to_chars and other helpers
-#include <functional>  // superclass of InfoFile::mem_fn
-#include <my_sys.h>    // IO_CACHE
-#include <my_global.h> // FN_REFLEN
+#include <functional>  // superclass of Info_file::Mem_fn
+#include <my_sys.h>    // IO_CACHE, FN_REFLEN, ...
 
 
-namespace IntIOCache
+namespace Int_IO_CACHE
 {
   /** Number of fully-utilized decimal digits plus
     * the partially-utilized digit (e.g., the 2's place in "2147483647")
@@ -89,15 +88,15 @@ namespace IntIOCache
 
 
 /**
-  This common superclass of @ref MasterInfoFile and
-  @ref RelayLogInfoFile provides them common code for saving
+  This common superclass of @ref Master_info_file and
+  @ref Relay_log_info_file provides them common code for saving
   and loading fields in their MySQL line-based sections.
-  As only the @ref MasterInfoFile has a MariaDB `key=value`
+  As only the @ref Master_info_file has a MariaDB `key=value`
   section with a mix of explicit and `DEFAULT`-able fields,
-  code for those are in @ref MasterInfoFile instead.
+  code for those are in @ref Master_info_file instead.
 
   Each field is an instance of an implementation
-  of the @ref InfoFile::Persistent interface.
+  of the @ref Info_file::Persistent interface.
   C++ templates enables code reuse for those implementation structs, but
   templates are not suitable for the conventional header/implementation split.
   Thus, this and derived files are header-only units (methods are `inline`).
@@ -106,7 +105,7 @@ namespace IntIOCache
   [C++20 modules](https://en.cppreference.com/w/cpp/language/modules.html)
   can supercede headers and their `#include` guards.
 */
-struct InfoFile
+struct Info_file
 {
   IO_CACHE file;
 
@@ -133,10 +132,10 @@ struct InfoFile
 
   /** Integer Field
     @tparam I signed or unsigned integer type
-    @see MasterInfoFile::OptionalIntField
+    @see Master_info_file::Optional_int_field
       version with `DEFAULT` (not a subclass)
   */
-  template<typename I> struct IntField: Persistent
+  template<typename I> struct Int_field: Persistent
   {
     I value;
     operator I() { return value; }
@@ -146,13 +145,13 @@ struct InfoFile
       return *this;
     }
     virtual bool load_from(IO_CACHE *file) override
-    { return IntIOCache::from_chars(file, value); }
+    { return Int_IO_CACHE::from_chars(file, value); }
     virtual void save_to(IO_CACHE *file) override
-    { return IntIOCache::to_chars(file, value); }
+    { return Int_IO_CACHE::to_chars(file, value); }
   };
 
   /// Null-Terminated String (usually file name) Field
-  template<size_t size= FN_REFLEN> struct StringField: Persistent
+  template<size_t size= FN_REFLEN> struct String_field: Persistent
   {
     char buf[size];
     virtual operator const char *() { return buf; }
@@ -188,30 +187,31 @@ struct InfoFile
   };
 
 
-  virtual ~InfoFile()= default;
+  virtual ~Info_file()= default;
   virtual bool load_from_file()= 0;
   virtual void save_to_file()= 0;
 
 protected:
 
   /**
-    std::mem_fn()-like nullable replacement for
+    std::Mem_fn()-like nullable replacement for
     [member pointer upcasting](https://wg21.link/P0149R3)
   */
-  struct mem_fn: std::function<Persistent &(InfoFile *self)>
+  struct Mem_fn: std::function<Persistent &(Info_file *self)>
   {
+    using List= const std::initializer_list<Mem_fn>;
     /// Null Constructor
-    mem_fn(nullptr_t null= nullptr):
-      std::function<Persistent &(InfoFile *)>(null) {}
+    Mem_fn(nullptr_t null= nullptr):
+      std::function<Persistent &(Info_file *)>(null) {}
     /** Non-Null Constructor
-      @tparam T CRTP subclass of InfoFile
+      @tparam T CRTP subclass of Info_file
       @tparam M @ref Persistent subclass of the member
       @param pm member pointer
     */
-    template<class T, typename M> mem_fn(M T::* pm):
-      std::function<Persistent &(InfoFile *)>(
-        [pm](InfoFile *self) -> Persistent &
-        { return self->*static_cast<M InfoFile::*>(pm); }
+    template<class T, typename M> Mem_fn(M T::* pm):
+      std::function<Persistent &(Info_file *)>(
+        [pm](Info_file *self) -> Persistent &
+        { return self->*static_cast<M Info_file::*>(pm); }
       ) {}
   };
 
@@ -219,34 +219,33 @@ protected:
     (Re)load the MySQL line-based section from the @ref file
     @param fields
       List of wrapped member pointers to fields. The first element must be a
-      file name @ref StringField to be unambiguous with the line count line.
+      file name @ref String_field to be unambiguous with the line count line.
     @param default_lines
       We cannot simply read lines until EOF as all versions
       of MySQL/MariaDB may generate more lines than needed.
-      Therefore, starting with MySQL/MariaDB 4.1.x for @ref MasterInfoFile and
-      5.6.x for @ref RelayLogInfoFile, the first line of the file is number of
-      one-line-per-field lines in the file, including this line count itself.
+      Therefore, starting with MySQL/MariaDB 4.1.x for @ref Master_info_file and
+      5.6.x for @ref Relay_log_info_file, the first line of the file is number
+      of one-line-per-field lines in the file, including this line count itself.
       This parameter specifies the number of effective lines before those
       versions (i.e., not counting the line count line if it was to have one),
       where the first line is a filename with extension
       (either contains a `.` or is entirely empty) rather than an integer.
     @return `false` if the file has parsed successfully or `true` if error
   */
-  bool load_from_file(std::initializer_list<mem_fn> fields,
-                      size_t default_lines)
+  bool load_from_file(Mem_fn::List fields, size_t default_lines)
   {
     /**
       The first row is temporarily stored in the first field. If it is a line
       count and not a log name (new format), the second row will overwrite it.
     */
-    auto &field1= dynamic_cast<StringField<> &>((*(fields.begin()))(this));
+    auto &field1= dynamic_cast<String_field<> &>((*(fields.begin()))(this));
     if (field1.load_from(&file))
       return true;
     size_t lines;
     std::from_chars_result result= std::from_chars(
       field1.buf, &field1.buf[sizeof(field1.buf)], lines);
     // Skip the first field in the for loop if that line was not a line count.
-    size_t i= result.ec != IntIOCache::ERRC_OK || *(result.ptr) != '\0';
+    size_t i= result.ec != Int_IO_CACHE::ERRC_OK || *(result.ptr) != '\0';
     /**
       Set the default after parsing: While std::from_chars() does not replace
       the output if it failed, it does replace if the line is not fully spent.
@@ -258,7 +257,7 @@ protected:
       int c;
       if (i < fields.size()) // line known in the ` list
       {
-        const mem_fn &pm= fields.begin()[i];
+        const Mem_fn &pm= fields.begin()[i];
         if (static_cast<bool>(pm))
         {
           if (pm(this).load_from(&file))
@@ -268,7 +267,7 @@ protected:
       }
       /*
         Count and discard unrecognized lines.
-        This is especially to prepare for @ref MasterInfoFile for MariaDB 10.0+,
+        This is especially to prepare for @ref Master_info_file for MariaDB 10.0+,
         which reserves a bunch of lines before its unique `key=value` section
         to accomodate any future line-based (old-style) additions in MySQL.
         (This will make moving from MariaDB to MySQL easier by not
@@ -291,7 +290,7 @@ protected:
       This reservation provides some compatibility
       should MySQL adds more line-based fields.
   */
-  void save_to_file(std::initializer_list<mem_fn> fields, size_t lines)
+  void save_to_file(Mem_fn::List fields, size_t lines)
   {
     DBUG_ASSERT(lines >= fields.size());
     my_b_seek(&file, 0);
@@ -301,9 +300,9 @@ protected:
       But these garbage don't matter thanks to the number
       of effective lines in the first line of the file.
     */
-    IntIOCache::to_chars(&file, lines);
+    Int_IO_CACHE::to_chars(&file, lines);
     my_b_write_byte(&file, '\n');
-    for (const mem_fn &pm: fields)
+    for (const Mem_fn &pm: fields)
     {
       if (static_cast<bool>(pm))
         pm(this).save_to(&file);
@@ -312,7 +311,7 @@ protected:
     /*
       Pad additional reserved lines:
       (1 for the line count line + field count) inclusive -> max line inclusive
-      = field count exclusive <- max line inclusive
+       = field count exclusive <- max line inclusive
     */
     for (; lines > fields.size(); --lines)
       my_b_write_byte(&file, '\n');

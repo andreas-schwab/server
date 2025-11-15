@@ -30,8 +30,8 @@ static void init_master_log_pos(Master_info* mi);
 
 Master_info::Master_info(LEX_CSTRING *connection_name_arg,
                          bool is_slave_recovery):
-   MasterInfoFile(ignore_server_ids, domain_id_filter.m_domain_ids[0],
-                                     domain_id_filter.m_domain_ids[1]),
+   Master_info_file(ignore_server_ids, domain_id_filter.m_domain_ids[0],
+                                       domain_id_filter.m_domain_ids[1]),
    Slave_reporting_capability("I/O"), fd(-1), io_thd(0), rli(is_slave_recovery),
    checksum_alg_before_fd(BINLOG_CHECKSUM_ALG_UNDEF),
    connects_tried(0), inited(0), abort_slave(0),
@@ -185,6 +185,8 @@ void init_master_log_pos(Master_info* mi)
   DBUG_ENTER("init_master_log_pos");
   mi->master_log_name[0] = 0;
   mi->master_log_pos = BIN_LOG_HEADER_SIZE;             // skip magic number
+  mi->master_use_gtid.set_default();
+  mi->master_heartbeat_period.set_default();
   mi->gtid_current_pos.reset();
   mi->events_queued_since_last_gtid= 0;
   mi->gtid_reconnect_event_skip_count= 0;
@@ -671,7 +673,7 @@ bool Master_info_index::init_all_master_info()
 {
   int thread_mask;
   int err_num= 0, succ_num= 0; // The number of success read Master_info
-  InfoFile::StringField<MAX_CONNECTION_NAME+1> sign;
+  Info_file::String_field<MAX_CONNECTION_NAME+1> sign;
   File index_file_nr;
   THD *thd;
   DBUG_ENTER("init_all_master_info");

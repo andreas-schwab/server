@@ -15,20 +15,17 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
-#include "rpl_info_file.hh"
-#include <unordered_map> // Type of @ref MasterInfoFile::FIELDS_MAP
-#include <string_view>   // Key type of @ref MasterInfoFile::FIELDS_MAP
-#include <unordered_set> // Parameter type of ChangeMaster::set_defaults() //?
-#include <optional>      // Storage type of @ref OptionalIntField
+#include "rpl_info_file.h"
+#include <unordered_map> // Type of @ref Master_info_file::FIELDS_MAP
+#include <string_view>   // Key type of @ref Master_info_file::FIELDS_MAP
+#include <optional>      // Storage type of @ref Optional_int_field
+#include <unordered_set> // Used by Master_info_file::load_from_file() to dedup
 #include "sql_const.h"   // MAX_PASSWORD_LENGTH
 
 
-inline static constexpr uint32_t SLAVE_MAX_HEARTBEAT_PERIOD=
-  std::numeric_limits<uint32_t>::max() / 1000;
-
 /**
   A three-way comparison function for using
-  sort_dynamic() and bsearch() on IDArrayField::array.
+  sort_dynamic() and bsearch() on ID_array_field::array.
   @return -1 if first argument is less, 0 if it equal to, or 1 if it is greater
   than the second
   @deprecated Use a sorted set, such as @ref std::set,
@@ -40,14 +37,14 @@ inline static int change_master_id_cmp(const void *arg1, const void *arg2)
   return (id1 > id2) - (id1 < id2);
 }
 
-/// enum for @ref MasterInfoFile::master_use_gtid
+/// enum for @ref Master_info_file::master_use_gtid
 enum struct enum_master_use_gtid { NO, CURRENT_POS, SLAVE_POS, DEFAULT };
 /// String names for non-@ref enum_master_use_gtid::DEFAULT values
 inline const char *master_use_gtid_names[]=
   {"No", "Current_Pos", "Slave_Pos", nullptr};
 
 /**
-  `mariadbd` Options for the `DEFAULT` values of @ref MasterInfoFile fields
+  `mariadbd` Options for the `DEFAULT` values of @ref Master_info_file fields
   @{
 */
 /// Computes the `DEFAULT` value of @ref ::master_heartbeat_period
@@ -69,13 +66,13 @@ inline uint64_t master_retry_count= 100'000;
 /// }@
 
 
-struct MasterInfoFile: InfoFile
+struct Master_info_file: Info_file
 {
 
   /** General Optional Field
     @tparam T wrapped type
  */
-  template<typename T> struct OptionalField: virtual Persistent
+  template<typename T> struct Optional_field: virtual Persistent
   {
     std::optional<T> optional;
     virtual operator T()= 0;
@@ -95,19 +92,19 @@ struct MasterInfoFile: InfoFile
     @tparam mariadbd_option
       server options variable that determines the value of `DEFAULT`
     @tparam I integer type (auto-deduced from `mariadbd_option`)
-    @see IntField version without `DEFAULT` (not a superclass)
+    @see Int_field version without `DEFAULT` (not a superclass)
   */
   template<auto &mariadbd_option,
            typename I= std::remove_reference_t<decltype(mariadbd_option)>>
-  struct OptionalIntField: OptionalField<I>
+  struct Optional_int_field: Optional_field<I>
   {
-    using OptionalField<I>::operator=;
+    using Optional_field<I>::operator=;
     operator I() override
-    { return OptionalField<I>::optional.value_or(mariadbd_option); }
+    { return Optional_field<I>::optional.value_or(mariadbd_option); }
     virtual bool load_from(IO_CACHE *file) override
-    { return IntIOCache::from_chars<I>(file, this); }
+    { return Int_IO_CACHE::from_chars<I>(file, this); }
     virtual void save_to(IO_CACHE *file) override
-    { return IntIOCache::to_chars(file, operator I()); }
+    { return Int_IO_CACHE::to_chars(file, operator I()); }
   };
 
   /** SSL Path Field:
@@ -115,18 +112,18 @@ struct MasterInfoFile: InfoFile
     Empty string is "\0\0" and `DEFAULT`ed string is "\0\1".
   */
   template<const char *const &mariadbd_option>
-  struct OptionalPathField: StringField<>
+  struct Optional_path_field: String_field<>
   {
     operator const char *() override
     {
       if (is_default())
         return mariadbd_option;
-      return StringField<>::operator const char *();
+      return String_field<>::operator const char *();
     }
     auto &operator=(const char *other)
     {
       buf[1]= false; // not default
-      StringField<>::operator=(other);
+      String_field<>::operator=(other);
       return *this;
     }
     bool is_default() override { return !buf[0] && buf[1]; }
@@ -139,7 +136,7 @@ struct MasterInfoFile: InfoFile
     bool load_from(IO_CACHE *file) override
     {
       buf[1]= false; // not default
-      return StringField<>::load_from(file);
+      return String_field<>::load_from(file);
     }
   };
 
@@ -149,7 +146,7 @@ struct MasterInfoFile: InfoFile
     load_from() and save_to() are also engineered
     to make use of the range of only two cases.
   */
-  template<bool &mariadbd_option> struct OptionalBoolField: Persistent
+  template<bool &mariadbd_option> struct Optional_bool_field: Persistent
   {
     enum { NO, YES, DEFAULT= -1 } value;
     operator bool() { return is_default() ? mariadbd_option : (value != NO); }
@@ -199,11 +196,11 @@ struct MasterInfoFile: InfoFile
       to existing arrays to reduce changes that will be obsolete by then.
       As references, the struct does not manage (construct/destruct) the array.
   */
-  struct IDArrayField: Persistent
+  struct ID_array_field: Persistent
   {
     /// Array of `long`s (FIXME: Domain and Server IDs should be `uint32_t`s.)
     DYNAMIC_ARRAY &array;
-    IDArrayField(DYNAMIC_ARRAY &array): array(array) {}
+    ID_array_field(DYNAMIC_ARRAY &array): array(array) {}
     operator DYNAMIC_ARRAY &() { return array; }
     /// @pre @ref array is initialized
 
@@ -212,7 +209,7 @@ struct MasterInfoFile: InfoFile
       uint32_t count;
       size_t i;
       /// +1 for the terminating delimiter
-      char buf[IntIOCache::BUF_SIZE<uint32_t> + 1];
+      char buf[Int_IO_CACHE::BUF_SIZE<uint32_t> + 1];
       for (i=0; i < sizeof(buf); ++i)
       {
         int c= my_b_get(file);
@@ -228,7 +225,7 @@ struct MasterInfoFile: InfoFile
       */
       std::from_chars_result result= std::from_chars(buf, &buf[i], count);
       // Reserve enough elements ahead of time.
-      if (result.ec != IntIOCache::ERRC_OK || allocate_dynamic(&array, count))
+      if (result.ec != Int_IO_CACHE::ERRC_OK || allocate_dynamic(&array, count))
         return true;
       while (count--)
       {
@@ -253,12 +250,12 @@ struct MasterInfoFile: InfoFile
             break;
         }
         result= std::from_chars(buf, &buf[i], value);
-        if (result.ec != IntIOCache::ERRC_OK)
+        if (result.ec != Int_IO_CACHE::ERRC_OK)
           return true;
         ulong id= value;
         if (insert_dynamic(&array, (uchar *)&id))
         {
-          DBUG_ASSERT(!"insert_dynamic(IDArrayField.array)");
+          DBUG_ASSERT(!"insert_dynamic(ID_array_field.array)");
           return true;
         }
       }
@@ -272,13 +269,13 @@ struct MasterInfoFile: InfoFile
     /// Store the total number of elements followed by the individual elements.
     void save_to(IO_CACHE *file) override
     {
-      IntIOCache::to_chars(file, array.elements);
+      Int_IO_CACHE::to_chars(file, array.elements);
       for (size_t i= 0; i < array.elements; ++i)
       {
         ulong id;
         get_dynamic(&array, &id, i);
         my_b_write_byte(file, ' ');
-        IntIOCache::to_chars(file, id);
+        Int_IO_CACHE::to_chars(file, id);
       }
     }
   };
@@ -289,34 +286,35 @@ struct MasterInfoFile: InfoFile
     @{
   */
 
-  StringField<HOSTNAME_LENGTH*SYSTEM_CHARSET_MBMAXLEN + 1> master_host;
-  StringField<USERNAME_LENGTH + 1> master_user;
+  String_field<HOSTNAME_LENGTH*SYSTEM_CHARSET_MBMAXLEN + 1> master_host;
+  String_field<USERNAME_LENGTH + 1> master_user;
   // Not in SHOW SLAVE STATUS
-  StringField<MAX_PASSWORD_LENGTH*SYSTEM_CHARSET_MBMAXLEN + 1> master_password;
-  IntField<uint32_t> master_port;
+  String_field<MAX_PASSWORD_LENGTH*SYSTEM_CHARSET_MBMAXLEN + 1> master_password;
+  Int_field<uint32_t> master_port;
   /// Connect_Retry
-  OptionalIntField<::master_connect_retry> master_connect_retry;
-  StringField<> master_log_file;
+  Optional_int_field<::master_connect_retry> master_connect_retry;
+  String_field<> master_log_file;
   /// Read_Master_Log_Pos
-  IntField<my_off_t> master_log_pos;
+  Int_field<my_off_t> master_log_pos;
   /// Master_SSL_Allowed
-  OptionalBoolField<::master_ssl> master_ssl;
+  Optional_bool_field<::master_ssl> master_ssl;
   /// Master_SSL_CA_File
-  OptionalPathField<::master_ssl_ca> master_ssl_ca;
+  Optional_path_field<::master_ssl_ca> master_ssl_ca;
   /// Master_SSL_CA_Path
-  OptionalPathField<::master_ssl_capath> master_ssl_capath;
-  OptionalPathField<::master_ssl_cert> master_ssl_cert;
-  OptionalPathField<::master_ssl_cipher> master_ssl_cipher;
-  OptionalPathField<::master_ssl_key> master_ssl_key;
-  OptionalBoolField<::master_ssl_verify_server_cert>
+  Optional_path_field<::master_ssl_capath> master_ssl_capath;
+  Optional_path_field<::master_ssl_cert> master_ssl_cert;
+  Optional_path_field<::master_ssl_cipher> master_ssl_cipher;
+  Optional_path_field<::master_ssl_key> master_ssl_key;
+  Optional_bool_field<::master_ssl_verify_server_cert>
     master_ssl_verify_server_cert;
   /// Replicate_Ignore_Server_Ids
-  IDArrayField ignore_server_ids;
-  OptionalPathField<::master_ssl_crl> master_ssl_crl;
-  OptionalPathField<::master_ssl_crlpath> master_ssl_crlpath;
+  ID_array_field ignore_server_ids;
+  Optional_path_field<::master_ssl_crl> master_ssl_crl;
+  Optional_path_field<::master_ssl_crlpath> master_ssl_crlpath;
 
-  /** @ref enum_master_use_gtid (with `DEFAULT`) Field:
-    It has a `DEFAULT` value of @ref ::master_use_gtid,
+  /** Singleton class of @ref Master_info_file::master_use_gtid:
+    It is a @ref enum_master_use_gtid field
+    with a `DEFAULT` value of @ref ::master_use_gtid,
     which in turn has a `DEFAULT` value based on @ref gtid_supported.
   */
   struct: Persistent
@@ -328,7 +326,7 @@ struct MasterInfoFile: InfoFile
       the check so future RESET SLAVE commands don't revert to `SLAVE_POS`.
       load_from() and save_to() are engineered (that is, hard-coded)
       on the single-digit range of @ref enum_master_use_gtid,
-      similar to OptionalBoolField.
+      similar to Optional_bool_field.
     */
     bool gtid_supported= true;
     operator enum_master_use_gtid()
@@ -357,7 +355,6 @@ struct MasterInfoFile: InfoFile
     bool set_default() override
     {
       mode= enum_master_use_gtid::DEFAULT;
-      gtid_supported= true;
       return false;
     }
     /** @return
@@ -368,7 +365,7 @@ struct MasterInfoFile: InfoFile
     {
       /**
         Only 3 chars are required for the enum,
-        similar to @ref OptionalBoolField::load_from()
+        similar to @ref Optional_bool_field::load_from()
       */
       char buf[3];
       if (!my_b_gets(file, buf, 3) ||
@@ -388,51 +385,52 @@ struct MasterInfoFile: InfoFile
   master_use_gtid;
 
   /// Replicate_Do_Domain_Ids
-  IDArrayField do_domain_ids;
+  ID_array_field do_domain_ids;
   /// Replicate_Ignore_Domain_Ids
-  IDArrayField ignore_domain_ids;
-  OptionalIntField<::master_retry_count> master_retry_count;
+  ID_array_field ignore_domain_ids;
+  Optional_int_field<::master_retry_count> master_retry_count;
 
-  /**
-    This is a non-negative `DECIMAL(10,3)` seconds field internally
+  /** Singleton class of Master_info_file::master_heartbeat_period:
+    It is a non-negative `DECIMAL(10,3)` seconds field internally
     calculated as an unsigned integer milliseconds field.
     It has a `DEFAULT` value of @ref ::master_heartbeat_period,
     which in turn has a `DEFAULT` value of `@@slave_net_timeout / 2` seconds.
   */
-  struct: OptionalField<uint32_t>
+  struct: Optional_field<uint32_t>
   {
-    using OptionalField::operator=;
+    using Optional_field::operator=;
     operator uint32_t() override
     {
       return is_default() ? ::master_heartbeat_period.value_or(
         MY_MIN(slave_net_timeout*500ULL, SLAVE_MAX_HEARTBEAT_PERIOD)
-      ) : *(OptionalField<uint32_t>::optional);
+      ) : *(Optional_field<uint32_t>::optional);
     }
     bool load_from(IO_CACHE *file) override
     {
       /// Read in floating point first to validate the range
       double seconds;
       /**
-        Number of chars OptionalIntField::load_from() uses plus
+        Number of chars Optional_int_field::load_from() uses plus
         1 for the decimal point; truncate the excess precision,
         which there should not be unless the file is edited externally.
       */
-      char buf[IntIOCache::BUF_SIZE<uint32_t> + 3];
+      char buf[Int_IO_CACHE::BUF_SIZE<uint32_t> + 3];
       size_t length= my_b_gets(file, buf, sizeof(buf));
       if (!length)
         return true;
-    #ifdef __clang__
+#if defined(__clang__) ? _LIBCPP_VERSION < 200000 :\
+    defined(__GNUC__) && __GNUC__ < 11
       // FIXME: floating-point variants of `std::from_chars()` not supported
       char end;
       if (sscanf(buf, "%lf%c", &seconds, &end) < 2 || end
-    #else
+#else
       std::from_chars_result result=
         std::from_chars(buf, &buf[length], seconds, std::chars_format::fixed);
-      if (result.ec != IntIOCache::ERRC_OK || *(result.ptr)
-    #endif
+      if (result.ec != Int_IO_CACHE::ERRC_OK || *(result.ptr)
+#endif
             != '\n' || seconds < 0 || seconds > SLAVE_MAX_HEARTBEAT_PERIOD)
         return true;
-      operator=(static_cast<uint32_t>(seconds / 1000));
+      operator=(static_cast<uint32_t>(seconds * 1000));
       return false;
     }
     /**
@@ -440,10 +438,10 @@ struct MasterInfoFile: InfoFile
       full advantage of the non-negative `DECIMAL(10,3)` format.
     */
     void save_to(IO_CACHE *file) override {
-      char buf[IntIOCache::BUF_SIZE<uint32_t>];
+      char buf[Int_IO_CACHE::BUF_SIZE<uint32_t>];
       std::to_chars_result result=
         std::to_chars(buf, &buf[sizeof(buf)], operator uint32_t());
-      DBUG_ASSERT(result.ec == IntIOCache::ERRC_OK);
+      DBUG_ASSERT(result.ec == Int_IO_CACHE::ERRC_OK);
       ptrdiff_t size= result.ptr - buf;
       if (size > 3) // decimal seconds has ones digit or more
       {
@@ -467,28 +465,28 @@ struct MasterInfoFile: InfoFile
   /// }@
 
 
-  inline static const std::initializer_list<mem_fn> FIELDS_LIST= {
-    &MasterInfoFile::master_log_file,
-    &MasterInfoFile::master_log_pos,
-    &MasterInfoFile::master_host,
-    &MasterInfoFile::master_user,
-    &MasterInfoFile::master_password,
-    &MasterInfoFile::master_port,
-    &MasterInfoFile::master_connect_retry,
-    &MasterInfoFile::master_ssl,
-    &MasterInfoFile::master_ssl_ca,
-    &MasterInfoFile::master_ssl_capath,
-    &MasterInfoFile::master_ssl_cert,
-    &MasterInfoFile::master_ssl_cipher,
-    &MasterInfoFile::master_ssl_key,
-    &MasterInfoFile::master_ssl_verify_server_cert,
-    &MasterInfoFile::master_heartbeat_period,
-    nullptr, // &MasterInfoFile::master_bind, // MDEV-19248
-    &MasterInfoFile::ignore_server_ids,
+  inline static Mem_fn::List FIELDS_LIST= {
+    &Master_info_file::master_log_file,
+    &Master_info_file::master_log_pos,
+    &Master_info_file::master_host,
+    &Master_info_file::master_user,
+    &Master_info_file::master_password,
+    &Master_info_file::master_port,
+    &Master_info_file::master_connect_retry,
+    &Master_info_file::master_ssl,
+    &Master_info_file::master_ssl_ca,
+    &Master_info_file::master_ssl_capath,
+    &Master_info_file::master_ssl_cert,
+    &Master_info_file::master_ssl_cipher,
+    &Master_info_file::master_ssl_key,
+    &Master_info_file::master_ssl_verify_server_cert,
+    &Master_info_file::master_heartbeat_period,
+    nullptr, // &Master_info_file::master_bind, // MDEV-19248
+    &Master_info_file::ignore_server_ids,
     nullptr, // MySQL field `master_uuid`, which MariaDB ignores.
-    &MasterInfoFile::master_retry_count,
-    &MasterInfoFile::master_ssl_crl,
-    &MasterInfoFile::master_ssl_crlpath
+    &Master_info_file::master_retry_count,
+    &Master_info_file::master_ssl_crl,
+    &Master_info_file::master_ssl_crlpath
   };
 
   /**
@@ -498,49 +496,50 @@ struct MasterInfoFile: InfoFile
   static constexpr const char END_MARKER[]= "END_MARKER";
   /// An iterable for the `key=value` section of `@@master_info_file`
   // C++ default allocator to match that `mysql_execute_command()` uses `new`
-  inline static const std::unordered_map<std::string_view, mem_fn> FIELDS_MAP= {
+  inline static const std::unordered_map<std::string_view, Mem_fn> FIELDS_MAP= {
     // These are here to annotate whether they are `DEFAULT`.
-    {"connect_retry"         , &MasterInfoFile::master_connect_retry         },
-    {"ssl"                   , &MasterInfoFile::master_ssl                   },
-    {"ssl_ca"                , &MasterInfoFile::master_ssl_ca                },
-    {"ssl_capath"            , &MasterInfoFile::master_ssl_capath            },
-    {"ssl_cert"              , &MasterInfoFile::master_ssl_cert              },
-    {"ssl_cipher"            , &MasterInfoFile::master_ssl_cipher            },
-    {"ssl_key"               , &MasterInfoFile::master_ssl_key               },
-    {"ssl_crl"               , &MasterInfoFile::master_ssl_crl               },
-    {"ssl_crlpath"           , &MasterInfoFile::master_ssl_crlpath           },
-    {"ssl_verify_server_cert", &MasterInfoFile::master_ssl_verify_server_cert},
-    {"heartbeat_period"      , &MasterInfoFile::master_heartbeat_period      },
-    {"retry_count"           , &MasterInfoFile::master_retry_count           },
+    {"connect_retry"    , &Master_info_file::master_connect_retry         },
+    {"ssl"              , &Master_info_file::master_ssl                   },
+    {"ssl_ca"           , &Master_info_file::master_ssl_ca                },
+    {"ssl_capath"       , &Master_info_file::master_ssl_capath            },
+    {"ssl_cert"         , &Master_info_file::master_ssl_cert              },
+    {"ssl_cipher"       , &Master_info_file::master_ssl_cipher            },
+    {"ssl_key"          , &Master_info_file::master_ssl_key               },
+    {"ssl_crl"          , &Master_info_file::master_ssl_crl               },
+    {"ssl_crlpath"      , &Master_info_file::master_ssl_crlpath           },
+    {"ssl_verify_server_cert",
+                          &Master_info_file::master_ssl_verify_server_cert},
+    {"heartbeat_period" , &Master_info_file::master_heartbeat_period      },
+    {"retry_count"      , &Master_info_file::master_retry_count           },
     /* These are the ones new in MariaDB.
       For backward compatibility,
       keys should match the corresponding old property name in @ref Master_info.
     */
-    {"using_gtid",        &MasterInfoFile::master_use_gtid  },
-    {"do_domain_ids",     &MasterInfoFile::do_domain_ids    },
-    {"ignore_domain_ids", &MasterInfoFile::ignore_domain_ids},
+    {"using_gtid",        &Master_info_file::master_use_gtid  },
+    {"do_domain_ids",     &Master_info_file::do_domain_ids    },
+    {"ignore_domain_ids", &Master_info_file::ignore_domain_ids},
     {END_MARKER, nullptr}
   };
 
 
-  MasterInfoFile(DYNAMIC_ARRAY &ignore_server_ids,
+  Master_info_file(DYNAMIC_ARRAY &ignore_server_ids,
                  DYNAMIC_ARRAY &do_domain_ids, DYNAMIC_ARRAY &ignore_domain_ids)
     : ignore_server_ids(ignore_server_ids),
       do_domain_ids(do_domain_ids), ignore_domain_ids(ignore_domain_ids)
   {
-    for(auto &[_, mem_fn]: FIELDS_MAP)
-      if (static_cast<bool>(mem_fn))
-        mem_fn(this).set_default();
+    for(auto &[_, Mem_fn]: FIELDS_MAP)
+      if (static_cast<bool>(Mem_fn))
+        Mem_fn(this).set_default();
   }
 
   bool load_from_file() override
   {
     /// Repurpose the trailing `\0` spot to prepare for the `=` or `\n`
     static constexpr size_t MAX_KEY_SIZE= sizeof("ssl_verify_server_cert");
-    if (InfoFile::load_from_file(FIELDS_LIST, /* MASTER_CONNECT_RETRY */ 7))
+    if (Info_file::load_from_file(FIELDS_LIST, /* MASTER_CONNECT_RETRY */ 7))
       return true;
     /*
-      InfoFile::load_from_file() is only for fixed-position entries.
+      Info_file::load_from_file() is only for fixed-position entries.
       Proceed with `key=value` lines for MariaDB 10.0 and above:
       The "value" can then be read individually after consuming the`key=`.
     */
@@ -591,14 +590,14 @@ struct MasterInfoFile: InfoFile
           key[i]= c;
         }
       }
-      break_for:;
+break_for:;
     }
   }
 
   void save_to_file() override
   {
     // Write the line-based section with some reservations for MySQL additions
-    InfoFile::save_to_file(FIELDS_LIST, 33);
+    Info_file::save_to_file(FIELDS_LIST, 33);
     /* Write MariaDB `key=value` lines:
       The "value" can then be written individually after generating the`key=`.
     */
