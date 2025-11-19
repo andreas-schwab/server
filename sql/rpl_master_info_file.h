@@ -403,7 +403,7 @@ struct Master_info_file: Info_file
   struct Heartbeat_period_field: Optional_field<uint32_t>
   {
     /// @return std::numeric_limits<uint32_t>::max() / 1000.0 as a C-string
-    static constexpr std::string_view MAX= "4294967.295";
+    static constexpr char MAX[]= "4294967.295";
     using Optional_field::operator=;
     operator uint32_t() override
     {
@@ -418,21 +418,24 @@ struct Master_info_file: Info_file
     // TODO might have to be a static helper callable from the lexer, instead of error on parser
     bool load_from(const decimal_t &decimal, uint &out_warning)
     {
-      /*
-        (The ideal use would work with `double`s, including the `*1000` step,
-         but disappointingly, the double interfaces of @ref decimal_t are
-         implemented by printing into a string and parsing that char array.
-      */
-      static const struct Decimal_from_str: my_decimal
+      /// Wrapper to enable only-once static const construction
+      struct Decimal_from_str: my_decimal
       {
-        Decimal_from_str(const std::string_view &string): my_decimal()
+        Decimal_from_str(const char *str, size_t strlen): my_decimal()
         {
-          const char *end= string.end();
+          const char *end= &(str[strlen]);
           [[maybe_unused]] int unexpected_error= str2my_decimal(
-            E_DEC_ERROR, string.begin(), this, const_cast<char **>(&end));
+            E_DEC_ERROR, str, this, const_cast<char **>(&end));
           DBUG_ASSERT(!unexpected_error && !*end);
         }
-      } MAX_PERIOD= MAX, THOUSAND= std::string_view(STRING_WITH_LEN("1000"));
+      };
+      /*
+        The ideal use would work with `double`s, including the `*1000` step,
+        but disappointingly, the double interfaces of @ref decimal_t are
+        implemented by printing into a string and parsing that char array.
+      */
+      static const auto MAX_PERIOD= Decimal_from_str(STRING_WITH_LEN(MAX)),
+                        THOUSAND  = Decimal_from_str(STRING_WITH_LEN("1000"));
       ulonglong decimal_out;
       if (decimal.sign || decimal_cmp(&MAX_PERIOD, &decimal) < 0)
         return (out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE);

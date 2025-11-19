@@ -4071,7 +4071,7 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
     if (ret)
     {
       my_error(ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE, MYF(0),
-               Master_info_file::Heartbeat_period_field::MAX.data());
+               Master_info_file::Heartbeat_period_field::MAX);
       goto err;
     }
     if (warning)
