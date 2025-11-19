@@ -51,7 +51,7 @@ namespace Int_IO_CACHE
     if (!length) // EOF
       return true;
     // SFINAE if `I` is not a numeric type
-    std::from_chars_result result= std::from_chars(buf, &buf[length], value);
+    std::from_chars_result result= std::from_chars(buf, &(buf[length]), value);
     // Return `true` if the conversion failed or if the number ended early
     return result.ec != ERRC_OK || *(result.ptr) != '\n';
   }

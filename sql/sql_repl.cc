@@ -4064,9 +4064,20 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
     mi->retry_count= lex_mi->retry_count;
     mi->connects_tried= 0;
   }
-  if (lex_mi->heartbeat_opt != LEX_MASTER_INFO::LEX_MI_UNCHANGED)
-    mi->master_heartbeat_period=
-      static_cast<uint32_t>(lex_mi->heartbeat_period * 1000);
+  if (lex_mi->heartbeat_opt)
+  {
+    uint warning= 0;
+    ret= mi->master_heartbeat_period.load_from(*lex_mi->heartbeat_opt, warning);
+    if (ret)
+    {
+      my_error(ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE, MYF(0),
+               Master_info_file::Heartbeat_period_field::MAX.data());
+      goto err;
+    }
+    if (warning)
+      push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
+                   warning, ER_THD(thd, warning));
+  }
   mi->received_heartbeats= 0; // counter lives until master is CHANGEd
 
   /*

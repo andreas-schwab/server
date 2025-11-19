@@ -18,9 +18,13 @@
 #include "rpl_info_file.h"
 #include <unordered_map> // Type of @ref Master_info_file::FIELDS_MAP
 #include <string_view>   // Key type of @ref Master_info_file::FIELDS_MAP
-#include <optional>      // Storage type of @ref Optional_int_field
-#include <unordered_set> // Used by Master_info_file::load_from_file() to dedup
-#include "sql_const.h"   // MAX_PASSWORD_LENGTH
+// Storage type of @ref Master_info_file::Optional_int_field
+#include <optional>
+#include <unordered_set>  // Used by Master_info_file::load_from_file() to dedup
+#include <mysqld_error.h> // ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_X
+#include "sql_const.h"    // MAX_PASSWORD_LENGTH
+// Interface type of @ref Master_info_file::master_heartbeat_period
+#include "my_decimal.h"
 
 
 /**
@@ -396,19 +400,60 @@ struct Master_info_file: Info_file
     It has a `DEFAULT` value of @ref ::master_heartbeat_period,
     which in turn has a `DEFAULT` value of `@@slave_net_timeout / 2` seconds.
   */
-  struct: Optional_field<uint32_t>
+  struct Heartbeat_period_field: Optional_field<uint32_t>
   {
+    /// @return std::numeric_limits<uint32_t>::max() / 1000.0 as a C-string
+    static constexpr std::string_view MAX= "4294967.295";
     using Optional_field::operator=;
     operator uint32_t() override
     {
       return is_default() ? ::master_heartbeat_period.value_or(
-        MY_MIN(slave_net_timeout*500ULL, SLAVE_MAX_HEARTBEAT_PERIOD)
+        MY_MIN(slave_net_timeout*500ULL, std::numeric_limits<uint32_t>::max())
       ) : *(Optional_field<uint32_t>::optional);
+    }
+    /** Load from a `DECIMAL(10,3)`
+      @param out_warning This is overwritten with a MariaDB error code -
+        whose message has no additional parameters - on *and only on* warning.
+    */
+    // TODO might have to be a static helper callable from the lexer, instead of error on parser
+    bool load_from(const decimal_t &decimal, uint &out_warning)
+    {
+      /*
+        (The ideal use would work with `double`s, including the `*1000` step,
+         but disappointingly, the double interfaces of @ref decimal_t are
+         implemented by printing into a string and parsing that char array.
+      */
+      static const struct Decimal_from_str: my_decimal
+      {
+        Decimal_from_str(const std::string_view &string): my_decimal()
+        {
+          const char *end= string.end();
+          [[maybe_unused]] int unexpected_error= str2my_decimal(
+            E_DEC_ERROR, string.begin(), this, const_cast<char **>(&end));
+          DBUG_ASSERT(!unexpected_error && !*end);
+        }
+      } MAX_PERIOD= MAX, THOUSAND= std::string_view(STRING_WITH_LEN("1000"));
+      ulonglong decimal_out;
+      if (decimal.sign || decimal_cmp(&MAX_PERIOD, &decimal) < 0)
+        return (out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE);
+      bool overprecise= decimal.frac > 3;
+      // decomposed from my_decimal2int() to reduce a bit of computations
+      auto rounded= my_decimal(), product= my_decimal();
+      [[maybe_unused]] int unexpected_error=
+        decimal_round(&decimal, &rounded, 3, HALF_UP) |
+        decimal_mul(&rounded, &THOUSAND, &product) |
+        decimal2ulonglong(&product, &decimal_out);
+      DBUG_ASSERT(!unexpected_error);
+      operator=(static_cast<uint32_t>(decimal_out));
+      if (unlikely(decimal_out > slave_net_timeout*1000ULL))
+        out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MAX;
+      else if (unlikely(!decimal_out && overprecise))
+        out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MIN;
+      return false;
     }
     bool load_from(IO_CACHE *file) override
     {
-      /// Read in floating point first to validate the range
-      double seconds;
+      [[maybe_unused]] uint ignored_warning;
       /**
         Number of chars Optional_int_field::load_from() uses plus
         1 for the decimal point; truncate the excess precision,
@@ -418,20 +463,10 @@ struct Master_info_file: Info_file
       size_t length= my_b_gets(file, buf, sizeof(buf));
       if (!length)
         return true;
-#if defined(__clang__) ? _LIBCPP_VERSION < 200000 :\
-    defined(__GNUC__) && __GNUC__ < 11
-      // FIXME: floating-point variants of `std::from_chars()` not supported
-      char end;
-      if (sscanf(buf, "%lf%c", &seconds, &end) < 2 || end
-#else
-      std::from_chars_result result=
-        std::from_chars(buf, &buf[length], seconds, std::chars_format::fixed);
-      if (result.ec != Int_IO_CACHE::ERRC_OK || *(result.ptr)
-#endif
-            != '\n' || seconds < 0 || seconds > SLAVE_MAX_HEARTBEAT_PERIOD)
-        return true;
-      operator=(static_cast<uint32_t>(seconds * 1000));
-      return false;
+      char *end= &(buf[length]);
+      auto decimal= my_decimal();
+      return str2my_decimal(E_DEC_ERROR, buf, &decimal, &end) || *end != '\n' ||
+             load_from(decimal, ignored_warning);
     }
     /**
       This method is engineered (that is, hard-coded) to take

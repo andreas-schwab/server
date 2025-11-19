@@ -1905,13 +1905,11 @@ when it try to get the value of TIME_ZONE global variable from master.";
 
   if (heartbeat_period)
   {
-    const char query_format[]= "SET @master_heartbeat_period= %llu";
-    char query[sizeof(query_format) + 32];
-    /* 
-       the period is an ulonglong of nano-secs. 
-    */
-    my_snprintf(query, sizeof(query), query_format,
-                heartbeat_period*1'000'000ULL);
+    // The user variable is in nanoseconds
+    static const char query_format[]=
+      "SET @master_heartbeat_period= %" PRIu32 "000""000";
+    char query[sizeof(query_format) + Int_IO_CACHE::BUF_SIZE<uint32_t>];
+    my_snprintf(query, sizeof(query), query_format, heartbeat_period);
 
     DBUG_EXECUTE_IF("simulate_slave_heartbeat_network_error",
                     { static ulong dbug_count= 0;
