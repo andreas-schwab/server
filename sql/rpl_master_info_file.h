@@ -21,7 +21,6 @@
 // Storage type of @ref Master_info_file::Optional_int_field
 #include <optional>
 #include <unordered_set>  // Used by Master_info_file::load_from_file() to dedup
-#include <mysqld_error.h> // ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_X
 #include "sql_const.h"    // MAX_PASSWORD_LENGTH
 // Interface type of @ref Master_info_file::master_heartbeat_period
 #include "my_decimal.h"
@@ -412,11 +411,14 @@ struct Master_info_file: Info_file
       ) : *(Optional_field<uint32_t>::optional);
     }
     /** Load from a `DECIMAL(10,3)`
-      @param out_warning This is overwritten with a MariaDB error code -
-        whose message has no additional parameters - on *and only on* warning.
+      @param overprecise
+        set to `true` if the decimal has more than 3 decimal digits
+      @return whether the decimal is out of range
+      @post Output arguments are not changed if the decimal is out of range.
     */
-    // TODO might have to be a static helper callable from the lexer, instead of error on parser
-    bool load_from(const decimal_t &decimal, uint &out_warning)
+    static uint from_decimal(
+      std::optional<uint32_t> &self, const decimal_t &decimal, bool &overprecise
+    )
     {
       /// Wrapper to enable only-once static const construction
       struct Decimal_from_str: my_decimal
@@ -438,38 +440,45 @@ struct Master_info_file: Info_file
                         THOUSAND  = Decimal_from_str(STRING_WITH_LEN("1000"));
       ulonglong decimal_out;
       if (decimal.sign || decimal_cmp(&MAX_PERIOD, &decimal) < 0)
-        return (out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE);
-      bool overprecise= decimal.frac > 3;
+        return true; // ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE
+      overprecise= decimal.frac > 3;
       // decomposed from my_decimal2int() to reduce a bit of computations
       auto rounded= my_decimal(), product= my_decimal();
-      [[maybe_unused]] int unexpected_error=
-        decimal_round(&decimal, &rounded, 3, HALF_UP) |
-        decimal_mul(&rounded, &THOUSAND, &product) |
-        decimal2ulonglong(&product, &decimal_out);
-      DBUG_ASSERT(!unexpected_error);
-      operator=(static_cast<uint32_t>(decimal_out));
-      if (unlikely(decimal_out > slave_net_timeout*1000ULL))
-        out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MAX;
-      else if (unlikely(!decimal_out && overprecise))
-        out_warning= ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MIN;
-      return false;
+      int error= decimal_round(&decimal, &rounded, 3, HALF_UP) |
+                 decimal_mul(&rounded, &THOUSAND, &product) |
+                 decimal2ulonglong(&product, &decimal_out);
+      DBUG_ASSERT(!error);
+      self.emplace(static_cast<uint32_t>(decimal_out));
+      return error;
+    }
+    /** Load from a C-string
+      @param expected_end This function also checks that the exclusive end
+        of the decimal *(which may be `str_end` itself)* is this delimiter.
+      @return from_decimal(), or `true` on unexpected contents
+      @post Output arguments are not changed on error.
+    */
+    static uint from_chars(
+      std::optional<uint32_t> &self, const char *str,
+      const char *str_end, bool &overprecise, char expected_end= '\n'
+    )
+    {
+      auto decimal= my_decimal();
+      return str2my_decimal(
+        E_DEC_ERROR, str, &decimal, const_cast<char **>(&str_end)
+      ) || *str_end != expected_end || from_decimal(self, decimal, overprecise);
     }
     bool load_from(IO_CACHE *file) override
     {
-      [[maybe_unused]] uint ignored_warning;
       /**
         Number of chars Optional_int_field::load_from() uses plus
         1 for the decimal point; truncate the excess precision,
         which there should not be unless the file is edited externally.
       */
       char buf[Int_IO_CACHE::BUF_SIZE<uint32_t> + 3];
+      bool overprecise;
       size_t length= my_b_gets(file, buf, sizeof(buf));
-      if (!length)
-        return true;
-      char *end= &(buf[length]);
-      auto decimal= my_decimal();
-      return str2my_decimal(E_DEC_ERROR, buf, &decimal, &end) || *end != '\n' ||
-             load_from(decimal, ignored_warning);
+      return !length ||
+        from_chars(optional, buf, &(buf[length]), overprecise) || overprecise;
     }
     /**
       This method is engineered (that is, hard-coded) to take
@@ -483,9 +492,9 @@ struct Master_info_file: Info_file
       ptrdiff_t size= result.ptr - buf;
       if (size > 3) // decimal seconds has ones digit or more
       {
-        my_b_write(file, (const uchar *)buf, size - 3);
+        my_b_write(file, reinterpret_cast<const uchar *>(buf), size - 3);
         my_b_write_byte(file, '.');
-        my_b_write(file, (const uchar *)(&result.ptr[-3]), 3);
+        my_b_write(file, reinterpret_cast<const uchar *>(&result.ptr[-3]), 3);
       }
       else
       {
@@ -493,7 +502,7 @@ struct Master_info_file: Info_file
         my_b_write_byte(file, '.');
         for (ptrdiff_t zeroes= size; zeroes < 3; ++zeroes)
           my_b_write_byte(file, '0');
-        my_b_write(file, (const uchar *)buf, size);
+        my_b_write(file, reinterpret_cast<const uchar *>(buf), size);
       }
     }
   }
@@ -643,7 +652,8 @@ break_for:;
       if (static_cast<bool>(pm))
       {
         Persistent &field= pm(this);
-        my_b_write(&file, (const uchar *)key.data(), key.size());
+        my_b_write(&file,
+                   reinterpret_cast<const uchar *>(key.data()), key.size());
         if (!field.is_default())
         {
           my_b_write_byte(&file, '=');
@@ -651,7 +661,7 @@ break_for:;
         }
         my_b_write_byte(&file, '\n');
       }
-    my_b_write(&file, (const uchar *)END_MARKER,
+    my_b_write(&file, reinterpret_cast<const uchar *>(END_MARKER),
               sizeof(END_MARKER) - /* the '\0' */ 1);
     my_b_write_byte(&file, '\n');
   }

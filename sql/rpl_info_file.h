@@ -82,7 +82,7 @@ namespace Int_IO_CACHE
     char buf[BUF_SIZE<I>];
     std::to_chars_result result= std::to_chars(buf, &buf[sizeof(buf)], value);
     DBUG_ASSERT(result.ec == ERRC_OK);
-    my_b_write(file, (const uchar *)buf, result.ptr - buf);
+    my_b_write(file, reinterpret_cast<const uchar *>(buf), result.ptr - buf);
   }
 };
 
@@ -182,7 +182,7 @@ struct Info_file
     virtual void save_to(IO_CACHE *file) override
     {
       const char *buf= *this;
-      my_b_write(file, (const uchar *)buf, strlen(buf));
+      my_b_write(file, reinterpret_cast<const uchar *>(buf), strlen(buf));
     }
   };
 
