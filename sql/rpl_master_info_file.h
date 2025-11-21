@@ -444,12 +444,13 @@ struct Master_info_file: Info_file
       overprecise= decimal.frac > 3;
       // decomposed from my_decimal2int() to reduce a bit of computations
       auto rounded= my_decimal(), product= my_decimal();
-      int error= decimal_round(&decimal, &rounded, 3, HALF_UP) |
-                 decimal_mul(&rounded, &THOUSAND, &product) |
-                 decimal2ulonglong(&product, &decimal_out);
-      DBUG_ASSERT(!error);
+      int unexpected_error=
+        decimal_round(&decimal, &rounded, 3, HALF_UP) |
+        decimal_mul(&rounded, &THOUSAND, &product) |
+        decimal2ulonglong(&product, &decimal_out);
+      DBUG_ASSERT(!unexpected_error);
       self.emplace(static_cast<uint32_t>(decimal_out));
-      return error;
+      return unexpected_error;
     }
     /** Load from a C-string
       @param expected_end This function also checks that the exclusive end
@@ -582,7 +583,7 @@ struct Master_info_file: Info_file
   bool load_from_file() override
   {
     /// Repurpose the trailing `\0` spot to prepare for the `=` or `\n`
-    static constexpr size_t MAX_KEY_SIZE= sizeof("ssl_verify_server_cert");
+    static constexpr size_t LONGEST_KEY_SIZE= sizeof("ssl_verify_server_cert");
     if (Info_file::load_from_file(FIELDS_LIST, /* MASTER_CONNECT_RETRY */ 7))
       return true;
     /*
@@ -598,8 +599,8 @@ struct Master_info_file: Info_file
     while (true)
     {
       bool found_equal= false;
-      char key[MAX_KEY_SIZE];
-      for (size_t i= 0; i < MAX_KEY_SIZE; ++i)
+      char key[LONGEST_KEY_SIZE];
+      for (size_t i= 0; i < LONGEST_KEY_SIZE; ++i)
       {
         switch (int c= my_b_get(&file)) {
         case my_b_EOF:
