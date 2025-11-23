@@ -4076,7 +4076,7 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
                Master_info_file::Heartbeat_period_field::MAX);
       goto err;
     }
-    uint32_t milliseconds= *mi->master_heartbeat_period.optional;
+    uint32_t milliseconds= *(mi->master_heartbeat_period.optional);
     if (unlikely(milliseconds > slave_net_timeout*1000ULL))
       push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
                    ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MAX,
@@ -4122,13 +4122,20 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
     mi->master_ssl_verify_server_cert=
       (lex_mi->ssl_verify_server_cert == LEX_MASTER_INFO::LEX_MI_ENABLE);
 
-  if (lex_mi->ssl_ca)      mi->master_ssl_ca     = lex_mi->ssl_ca;
-  if (lex_mi->ssl_capath)  mi->master_ssl_capath = lex_mi->ssl_capath;
-  if (lex_mi->ssl_cert)    mi->master_ssl_cert   = lex_mi->ssl_cert;
-  if (lex_mi->ssl_cipher)  mi->master_ssl_cipher = lex_mi->ssl_cipher;
-  if (lex_mi->ssl_key)     mi->master_ssl_key    = lex_mi->ssl_key;
-  if (lex_mi->ssl_crl)     mi->master_ssl_crl    = lex_mi->ssl_crl;
-  if (lex_mi->ssl_crlpath) mi->master_ssl_crlpath= lex_mi->ssl_crlpath;
+  if (lex_mi->ssl_ca)
+    mi->master_ssl_ca     = lex_mi->ssl_ca;
+  if (lex_mi->ssl_capath)
+    mi->master_ssl_capath = lex_mi->ssl_capath;
+  if (lex_mi->ssl_cert)
+    mi->master_ssl_cert   = lex_mi->ssl_cert;
+  if (lex_mi->ssl_cipher)
+    mi->master_ssl_cipher = lex_mi->ssl_cipher;
+  if (lex_mi->ssl_key)
+    mi->master_ssl_key    = lex_mi->ssl_key;
+  if (lex_mi->ssl_crl)
+    mi->master_ssl_crl    = lex_mi->ssl_crl;
+  if (lex_mi->ssl_crlpath)
+    mi->master_ssl_crlpath= lex_mi->ssl_crlpath;
 
 #ifndef HAVE_OPENSSL
   if (lex_mi->ssl || lex_mi->ssl_ca || lex_mi->ssl_capath ||

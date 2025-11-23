@@ -2376,9 +2376,7 @@ master_def:
         | MASTER_HEARTBEAT_PERIOD_SYM '=' NUM_literal
           {
             Lex->mi.heartbeat_opt= $3->val_decimal(&(Lex->mi.heartbeat_period));
-            if (!Lex->mi.heartbeat_opt)
-              my_yyabort_error((ER_WRONG_ARGUMENTS, MYF(0),
-                                "MASTER_HEARTBEAT_PERIOD"));
+            DEBUG_ASSERT(Lex->mi.heartbeat_opt);
           }
         | IGNORE_SERVER_IDS_SYM '=' '(' ignore_server_id_list ')'
           {

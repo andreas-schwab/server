@@ -2821,12 +2821,12 @@ void store_master_info(THD *thd, Master_info *mi, TABLE *table,
   (*field++)->store((ulonglong) mi->rli.until_log_pos, true);
 
   (*field++)->store(mi->master_ssl ?
-    #ifdef HAVE_OPENSSL
-      &msg_yes
-    #else
-      &msg_ignored
-    #endif
-  : &msg_no, &my_charset_bin);
+#ifdef HAVE_OPENSSL
+    &msg_yes
+#else
+    &msg_ignored
+#endif
+    : &msg_no, &my_charset_bin);
   store_string_or_null(field++, mi->master_ssl_ca);
   store_string_or_null(field++, mi->master_ssl_capath);
   store_string_or_null(field++, mi->master_ssl_cert);
