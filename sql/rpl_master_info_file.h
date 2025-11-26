@@ -15,6 +15,9 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
+#ifndef RPL_MASTER_INFO_FILE_H
+#define RPL_MASTER_INFO_FILE_H
+
 #include "rpl_info_file.h"
 #include <unordered_map> // Type of @ref Master_info_file::FIELDS_MAP
 #include <string_view>   // Key type of @ref Master_info_file::FIELDS_MAP
@@ -40,6 +43,13 @@ inline static int change_master_id_cmp(const void *arg1, const void *arg2)
   return (id1 > id2) - (id1 < id2);
 }
 
+/// enum for @ref Master_info_file::Optional_bool_field
+/*TODO:
+  `UNKNOWN` is the general term, but it is `#define`d in `item_cmpfunc.h`, which
+  is used by target RocksDB (and possibly others) whose *C++11* requirement
+  doesn't recognize `inline` constants (whereas the server is on C++17).
+*/
+enum struct trilean { NO, YES, DEFAULT= -1 };
 /// enum for @ref Master_info_file::master_use_gtid
 enum struct enum_master_use_gtid { NO, CURRENT_POS, SLAVE_POS, DEFAULT };
 /// String names for non-@ref enum_master_use_gtid::DEFAULT values
@@ -75,13 +85,14 @@ struct Master_info_file: Info_file
   /** General Optional Field
     @tparam T wrapped type
  */
-  template<typename T> struct Optional_field: virtual Persistent
+  template<typename T> struct Optional_field: Persistent
   {
     std::optional<T> optional;
     virtual operator T()= 0;
-    auto &operator=(T value)
+    /// Fowards to @ref optional perfectly
+    template<typename O> auto &operator=(O&& other)
     {
-      optional.emplace(value);
+      optional= std::forward<O>(other);
       return *this;
     }
     bool is_default() override { return !optional.has_value(); }
@@ -114,7 +125,7 @@ struct Master_info_file: Info_file
     @ref FN_REFLEN-sized C-string with a `mariadbd` option for the `DEFAULT`.
     Empty string is "\0\0" and `DEFAULT`ed string is "\0\1".
   */
-  template<const char *const &mariadbd_option>
+  template<const char *&mariadbd_option>
   struct Optional_path_field: String_field<>
   {
     operator const char *() override
@@ -123,10 +134,16 @@ struct Master_info_file: Info_file
         return mariadbd_option;
       return String_field<>::operator const char *();
     }
+    /// @param other `\0`-terminated string, or `nullptr` to call set_default()
     auto &operator=(const char *other)
     {
-      buf[1]= false; // not default
-      String_field<>::operator=(other);
+      if (other)
+      {
+        buf[1]= false; // not default
+        String_field<>::operator=(other);
+      }
+      else
+        set_default();
       return *this;
     }
     bool is_default() override { return !buf[0] && buf[1]; }
@@ -144,26 +161,29 @@ struct Master_info_file: Info_file
   };
 
   /** Boolean Field with `DEFAULT`:
-    This uses a trilean enum,
+    This uses the @ref trilean enum,
     which is more efficient than `std::optional<bool>`.
     load_from() and save_to() are also engineered
     to make use of the range of only two cases.
   */
   template<bool &mariadbd_option> struct Optional_bool_field: Persistent
   {
-    enum { NO, YES, DEFAULT= -1 } value;
-    operator bool() { return is_default() ? mariadbd_option : (value != NO); }
-    bool is_default() override { return value <= DEFAULT; }
+    trilean value;
+    operator bool()
+    { return is_default() ? mariadbd_option : (value != trilean::NO); }
+    bool is_default() override { return value <= trilean::DEFAULT; }
     bool set_default() override
     {
-      value= DEFAULT;
+      value= trilean::DEFAULT;
       return false;
     }
-    auto &operator=(bool value)
+    auto &operator=(trilean other)
     {
-      this->value= value ? YES : NO;
+      this->value= other;
       return *this;
     }
+    auto &operator=(bool value)
+    { return operator=(value ? trilean::YES : trilean::NO); }
     /// @return `true` if the line is `0` or `1`, `false` otherwise or on error
     bool load_from(IO_CACHE *file) override
     {
@@ -178,10 +198,10 @@ struct Master_info_file: Info_file
       if (my_b_gets(file, buf, 3) && buf[1] == '\n')
         switch (buf[0]) {
         case '0':
-          value= NO;
+          value= trilean::NO;
           return false;
         case '1':
-          value= YES;
+          value= trilean::YES;
           return false;
         }
       return true;
@@ -350,7 +370,6 @@ struct Master_info_file: Info_file
     auto &operator=(enum_master_use_gtid mode)
     {
       this->mode= mode;
-      DBUG_ASSERT(!is_default());
       return *this;
     }
     bool is_default() override
@@ -417,7 +436,7 @@ struct Master_info_file: Info_file
       @post Output arguments are not changed if the decimal is out of range.
     */
     static uint from_decimal(
-      std::optional<uint32_t> &self, const decimal_t &decimal, bool &overprecise
+      uint32_t &result, const decimal_t &decimal, bool &overprecise
     )
     {
       /// Wrapper to enable only-once static const construction
@@ -449,7 +468,7 @@ struct Master_info_file: Info_file
         decimal_mul(&rounded, &THOUSAND, &product) |
         decimal2ulonglong(&product, &decimal_out);
       DBUG_ASSERT(!unexpected_error);
-      self.emplace(static_cast<uint32_t>(decimal_out));
+      result= static_cast<uint32_t>(decimal_out);
       return unexpected_error;
     }
     /** Load from a C-string
@@ -463,10 +482,15 @@ struct Master_info_file: Info_file
       const char *str_end, bool &overprecise, char expected_end= '\n'
     )
     {
+      uint32_t result;
       auto decimal= my_decimal();
-      return str2my_decimal(
-        E_DEC_ERROR, str, &decimal, const_cast<char **>(&str_end)
-      ) || *str_end != expected_end || from_decimal(self, decimal, overprecise);
+      if (str2my_decimal(
+          E_DEC_ERROR, str, &decimal, const_cast<char **>(&str_end)
+        ) || *str_end != expected_end ||
+        from_decimal(result, decimal, overprecise))
+        return true;
+      self.emplace(result);
+      return false;
     }
     bool load_from(IO_CACHE *file) override
     {
@@ -575,9 +599,9 @@ struct Master_info_file: Info_file
     : ignore_server_ids(ignore_server_ids),
       do_domain_ids(do_domain_ids), ignore_domain_ids(ignore_domain_ids)
   {
-    for(auto &[_, Mem_fn]: FIELDS_MAP)
-      if (static_cast<bool>(Mem_fn))
-        Mem_fn(this).set_default();
+    for(auto &[_, mem_fn]: FIELDS_MAP)
+      if (mem_fn)
+        mem_fn(this).set_default();
   }
 
   bool load_from_file() override
@@ -650,7 +674,7 @@ break_for:;
       The "value" can then be written individually after generating the`key=`.
     */
     for (auto &[key, pm]: FIELDS_MAP)
-      if (static_cast<bool>(pm))
+      if (pm)
       {
         Persistent &field= pm(this);
         my_b_write(&file,
@@ -668,3 +692,5 @@ break_for:;
   }
 
 };
+
+#endif

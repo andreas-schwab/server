@@ -15,6 +15,9 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
+#ifndef RPL_RELAY_LOG_INFO_FILE_H
+#define RPL_RELAY_LOG_INFO_FILE_H
+
 #include "rpl_info_file.h"
 
 struct Relay_log_info_file: Info_file
@@ -51,3 +54,5 @@ struct Relay_log_info_file: Info_file
                             FIELDS_LIST.size() + /* line count line */ 1);
   }
 };
+
+#endif

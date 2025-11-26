@@ -15,8 +15,8 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
-#ifndef RPL_INFO_FILE_HH
-#define RPL_INFO_FILE_HH
+#ifndef RPL_INFO_FILE_H
+#define RPL_INFO_FILE_H
 
 #include <cstdint>     // uintN_t
 #include <charconv>    // std::from/to_chars and other helpers
@@ -155,7 +155,7 @@ struct Info_file
   {
     char buf[size];
     virtual operator const char *() { return buf; }
-    /// @param other not `nullptr`
+    /// @param other non-`nullptr` `\0`-terminated string
     auto &operator=(const char *other)
     {
       strmake(buf, other, size-1);
@@ -258,7 +258,7 @@ protected:
       if (i < fields.size()) // line known in the ` list
       {
         const Mem_fn &pm= fields.begin()[i];
-        if (static_cast<bool>(pm))
+        if (pm)
         {
           if (pm(this).load_from(&file))
             return true;
@@ -304,7 +304,7 @@ protected:
     my_b_write_byte(&file, '\n');
     for (const Mem_fn &pm: fields)
     {
-      if (static_cast<bool>(pm))
+      if (pm)
         pm(this).save_to(&file);
       my_b_write_byte(&file, '\n');
     }
