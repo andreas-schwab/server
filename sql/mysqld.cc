@@ -787,7 +787,7 @@ File_parser_dummy_hook file_parser_dummy_hook;
 /* replication parameters */
 uint report_port= 0;
 char *master_info_file;
-char *master_heartbeat_period_str= nullptr;
+char *master_heartbeat_period_str= autoset_my_option;
 char *relay_log_info_file, *report_user, *report_password, *report_host;
 char *opt_relay_logname = 0, *opt_relaylog_index_name=0;
 char *opt_logname, *opt_slow_logname, *opt_bin_logname;
@@ -8504,7 +8504,9 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
     break;
   }
   case OPT_MASTER_HEARTBEAT_PERIOD:
-    if (master_heartbeat_period_str)
+    if (master_heartbeat_period_str == autoset_my_option)
+      master_heartbeat_period.reset();
+    else
     {
       bool overprecise;
       if (Master_info_file::Heartbeat_period_field::from_chars(
@@ -8525,8 +8527,6 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
           "meaning that heartbeating will effectively be disabled."
         );
     }
-    else
-      master_heartbeat_period.reset();
     break;
 #endif /* HAVE_REPLICATION */
   case (int) OPT_SAFE:
