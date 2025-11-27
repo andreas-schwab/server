@@ -247,7 +247,7 @@ struct Master_info_file: Info_file
         int c= my_b_get(file);
         if (c == my_b_EOF)
           return true;
-        buf[i]= c;
+        buf[i]= static_cast<char>(c);
         if (c == /* End of Line */ '\n' || c == /* End of Count */ ' ')
           break;
       }
@@ -277,7 +277,7 @@ struct Master_info_file: Info_file
           int c= my_b_get(file);
           if (c == my_b_EOF)
             return true;
-          buf[i]= c;
+          buf[i]= static_cast<char>(c);
           if (c == /* End of Count */ ' ' || c == /* End of Line */ '\n')
             break;
         }
@@ -668,7 +668,7 @@ struct Master_info_file: Info_file
           goto break_for;
         }
         default:
-          key[i]= c;
+          key[i]= static_cast<char>(c);
         }
       }
 break_for:;
