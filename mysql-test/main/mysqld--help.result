@@ -1883,7 +1883,7 @@ long-query-time 10
 low-priority-updates FALSE
 lower-case-table-names 1
 master-connect-retry 60
-master-heartbeat-period (No default value)
+master-heartbeat-period auto
 master-info-file master.info
 master-retry-count 100000
 master-ssl TRUE

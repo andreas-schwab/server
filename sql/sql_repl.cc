@@ -4060,7 +4060,11 @@ bool change_master(THD* thd, Master_info* mi, bool *master_info_added)
   if (lex_mi->connect_retry)
     lex_mi->connect_retry(mi);
   if (lex_mi->retry_count)
+  {
     lex_mi->retry_count(mi);
+    // also reset the counter in case `connects_tried > master_retry_count`
+    mi->connects_tried= 0;
+  }
   if (lex_mi->heartbeat_period)
     lex_mi->heartbeat_period(mi);
   mi->received_heartbeats= 0; // counter lives until master is CHANGEd

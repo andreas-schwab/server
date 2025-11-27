@@ -15,6 +15,15 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
+/*FIXME MDEV-38213:
+  `rpl_master_info_file.h` requires C++17, but RocksDB,
+  which transitively includes this file, is still on C++11.
+*/
+#if __cplusplus < 201703L
+struct Master_info_file;
+enum enum_master_use_gtid {};
+#else
+
 #ifndef RPL_MASTER_INFO_FILE_H
 #define RPL_MASTER_INFO_FILE_H
 
@@ -75,7 +84,7 @@ inline const char *master_ssl_cipher = "";
 inline bool master_ssl_verify_server_cert= true;
 /// `ulong` is the data type `my_getopt` expects.
 inline auto master_use_gtid= static_cast<ulong>(enum_master_use_gtid::DEFAULT);
-inline uint64_t master_retry_count= 100'000;
+inline uint64_t master_retry_count= 100000;
 /// }@
 
 
@@ -693,4 +702,5 @@ break_for:;
 
 };
 
-#endif
+#endif // include guard
+#endif // C++ standard guard

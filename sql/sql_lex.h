@@ -41,6 +41,7 @@
 #include "table.h"
 #include "sql_class.h"                // enum enum_column_usage
 #include "select_handler.h"
+#include "rpl_master_info_file.h"     // Master_info_file
 
 /* Used for flags of nesting constructs */
 #define SELECT_NESTING_MAP_SIZE 64
@@ -183,7 +184,6 @@ class Pushdown_select;
 class Opt_hints_global;
 class Opt_hints_qb;
 class Optimizer_hint_parser_output;
-class Master_info; //FIXME: cannot `#include "rpl_mi.h"` due to dependencies
 
 #define ALLOC_ROOT_SET 1024
 
@@ -387,7 +387,7 @@ struct LEX_MASTER_INFO
     For now, lambdas in the parser code demonstrates this concept while
     keeping them deferred to the "post-processing" in change_master().
   */
-  using field_functor= std::function<void(Master_info *mi)>;
+  using field_functor= std::function<void(Master_info_file *mi)>;
   field_functor connect_retry, heartbeat_period, ssl,
     ssl_key, ssl_cert, ssl_ca, ssl_capath, ssl_cipher, ssl_crl, ssl_crlpath,
     ssl_verify_server_cert, retry_count, use_gtid;

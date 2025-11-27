@@ -50,20 +50,7 @@ connection_name	connect_retry	master_ssl_allowed	master_ssl_ca_file	master_ssl_c
 	90	No	specified_ca	specified_capath	specified_cert	specified_cipher	specified_key	No	specified_crl	specified_crlpath	No	150000	45.000
 defaulted	60	Yes						Yes			Slave_Pos	100000	60.000
 unset	60	Yes						Yes			Slave_Pos	100000	60.000
-# restart: --master-connect-retry=30
---skip-master-ssl
---master-ssl-ca=default_ca
---master-ssl-capath=default_capath
---master-ssl-cert=default_cert
---master-ssl-cipher=default_cipher
---master-ssl-key=default_key
---skip-master-ssl-verify-server-cert
---master-ssl-crl=default_crl
---master-ssl-crlpath=default_crlpath
---master-use-gtid=CURRENT_POS
---master-retry-count=50000
---master-heartbeat-period=15
---skip-slave-start
+# restart: --skip-slave-start --master-connect-retry=30 --skip-master-ssl --master-ssl-ca=default_ca --master-ssl-capath=default_capath --master-ssl-cert=default_cert --master-ssl-cipher=default_cipher --master-ssl-key=default_key --skip-master-ssl-verify-server-cert --master-ssl-crl=default_crl --master-ssl-crlpath=default_crlpath --master-use-gtid=CURRENT_POS --master-retry-count=50000 --master-heartbeat-period=15
 CALL show_defaultable_fields();
 connection_name	connect_retry	master_ssl_allowed	master_ssl_ca_file	master_ssl_ca_path	master_ssl_cert	master_ssl_cipher	master_ssl_key	master_ssl_verify_server_cert	master_ssl_crl	master_ssl_crlpath	using_gtid	master_retry_count	slave_heartbeat_period
 	90	No	specified_ca	specified_capath	specified_cert	specified_cipher	specified_key	No	specified_crl	specified_crlpath	No	150000	45.000
@@ -97,11 +84,13 @@ defaulted	30	No	default_ca	default_capath	default_cert	default_cipher	default_ke
 unset	30	No	default_ca	default_capath	default_cert	default_cipher	default_key	No	default_crl	default_crlpath	Current_Pos	50000	15.000
 RESET REPLICA 'unset' ALL;
 CHANGE MASTER 'unset' TO master_host='127.0.1.3';
-# restart: --skip-master-ssl --master-ssl
---skip-master-ssl-verify-server-cert --master-ssl-verify-server-cert
---master-use-gtid=NO --autoset-master-use-gtid
---master-heartbeat-period=45 --autoset-master-heartbeat-period
---skip-slave-start
+# restart_abort: --master-heartbeat-period=''
+# restart_abort: --master-heartbeat-period=123abc
+# restart_abort: --master-heartbeat-period=-1
+# restart_abort: --master-heartbeat-period=4294967.296
+# restart: --skip-slave-start --master-heartbeat-period=0.000499
+CALL mtr.add_suppression('.*master-heartbeat-period.+0.* disabl.+');
+# restart: --skip-slave-start --skip-master-ssl --master-ssl --skip-master-ssl-verify-server-cert --master-ssl-verify-server-cert --master-use-gtid=NO --autoset-master-use-gtid --master-heartbeat-period=45 --autoset-master-heartbeat-period
 CALL show_defaultable_fields();
 connection_name	connect_retry	master_ssl_allowed	master_ssl_ca_file	master_ssl_ca_path	master_ssl_cert	master_ssl_cipher	master_ssl_key	master_ssl_verify_server_cert	master_ssl_crl	master_ssl_crlpath	using_gtid	master_retry_count	slave_heartbeat_period
 	60	Yes						Yes			Slave_Pos	100000	60.000

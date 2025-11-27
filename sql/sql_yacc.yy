@@ -196,7 +196,8 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
 
 %code requires
 {
-#include "rpl_master_info_file.h" // enum_master_use_gtid, std::optional
+// Master_info_file, enum_master_use_gtid, std::optional
+#include "rpl_master_info_file.h"
 }
 
 %union {
@@ -212,8 +213,16 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   Longlong_hybrid longlong_hybrid_number= Longlong_hybrid(0, false);
 
   /* structs */
-  std::optional<uint32_t> optional_uint32;
-  std::optional<uint64_t> optional_uint64;
+  /**
+    This is a stand-in for @ref std::optional,
+    which is not trivially `union`-safe.
+  */
+  struct
+  {
+    bool has_value; uint64_t value;
+    template<typename I> operator std::optional<I>()
+    { return has_value ? std::optional<I>(value) : std::nullopt; }
+  } optional_uint;
   LEX_CSTRING lex_str;
   Lex_comment_st lex_comment;
   Lex_ident_cli_st kwd;
@@ -2024,8 +2033,8 @@ rule:
         sp_package_function_body
         sp_package_procedure_body
 
-%type <optional_uint32> uint32_or_default
-%type <optional_uint64> uint64_or_default
+%type <optional_uint> uint32_or_default
+%type <optional_uint> uint64_or_default
 %type <tril> bool_or_default
 %type <master_use_gtid> master_use_gtid_enum
 
@@ -2335,17 +2344,15 @@ master_def:
           }
         | MASTER_CONNECT_RETRY_SYM '=' uint32_or_default
           {
-            Lex->mi.connect_retry= [optional= $3](Master_info *mi)
+            Lex->mi.connect_retry= [optional=
+              static_cast<std::optional<uint32_t>>($3)](Master_info_file *mi)
             { mi->master_connect_retry= std::move(optional); };
           }
         | MASTER_RETRY_COUNT_SYM '=' uint64_or_default
           {
-            Lex->mi.retry_count= [optional= $3](Master_info *mi)
-            {
-              mi->master_retry_count= std::move(optional);
-              // also reset the counter in case of `connects_tried > $3`
-              mi->connects_tried= 0;
-            };
+            Lex->mi.retry_count= [optional=
+              static_cast<std::optional<uint64_t>>($3)](Master_info_file *mi)
+            { mi->master_retry_count= std::move(optional); };
           }
         | MASTER_DELAY_SYM '=' ulong_num
           {
@@ -2359,47 +2366,47 @@ master_def:
           }
         | MASTER_SSL_SYM '=' bool_or_default
           {
-            Lex->mi.ssl= [trilean= $3](Master_info *mi)
+            Lex->mi.ssl= [trilean= $3](Master_info_file *mi)
             { mi->master_ssl= trilean; };
           }
         | MASTER_SSL_CA_SYM '=' path_or_default
           {
-            Lex->mi.ssl_ca= [path= $3](Master_info *mi)
+            Lex->mi.ssl_ca= [path= $3](Master_info_file *mi)
             { mi->master_ssl_ca= path; };
           }
         | MASTER_SSL_CAPATH_SYM '=' path_or_default
           {
-            Lex->mi.ssl_capath= [path= $3](Master_info *mi)
+            Lex->mi.ssl_capath= [path= $3](Master_info_file *mi)
             { mi->master_ssl_capath= path; };
           }
         | MASTER_SSL_CERT_SYM '=' path_or_default
           {
-            Lex->mi.ssl_cert= [path= $3](Master_info *mi)
+            Lex->mi.ssl_cert= [path= $3](Master_info_file *mi)
             { mi->master_ssl_cert= path; };
           }
         | MASTER_SSL_CIPHER_SYM '=' path_or_default
           {
-            Lex->mi.ssl_cipher= [path= $3](Master_info *mi)
+            Lex->mi.ssl_cipher= [path= $3](Master_info_file *mi)
             { mi->master_ssl_cipher= path; };
           }
         | MASTER_SSL_KEY_SYM '=' path_or_default
           {
-            Lex->mi.ssl_key= [path= $3](Master_info *mi)
+            Lex->mi.ssl_key= [path= $3](Master_info_file *mi)
             { mi->master_ssl_key= path; };
           }
         | MASTER_SSL_VERIFY_SERVER_CERT_SYM '=' bool_or_default
           {
-            Lex->mi.ssl_verify_server_cert= [trilean= $3](Master_info *mi)
+            Lex->mi.ssl_verify_server_cert= [trilean= $3](Master_info_file *mi)
             { mi->master_ssl_verify_server_cert= trilean; };
           }
         | MASTER_SSL_CRL_SYM '=' path_or_default
           {
-            Lex->mi.ssl_crl= [path= $3](Master_info *mi)
+            Lex->mi.ssl_crl= [path= $3](Master_info_file *mi)
             { mi->master_ssl_crl= path; };
           }
         | MASTER_SSL_CRLPATH_SYM '=' path_or_default
           {
-            Lex->mi.ssl_crlpath= [path= $3](Master_info *mi)
+            Lex->mi.ssl_crlpath= [path= $3](Master_info_file *mi)
             { mi->master_ssl_crlpath= path; };
           }
 
@@ -2425,11 +2432,11 @@ master_def:
                 push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
                   ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MIN,
                   ER_THD(thd, ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MIN));
-              Lex->mi.heartbeat_period= [milliseconds](Master_info *mi)
+              Lex->mi.heartbeat_period= [milliseconds](Master_info_file *mi)
               { mi->master_heartbeat_period= milliseconds; };
             }
             else
-              Lex->mi.heartbeat_period= [](Master_info *mi)
+              Lex->mi.heartbeat_period= [](Master_info_file *mi)
               { mi->master_heartbeat_period.set_default(); };
           }
         | IGNORE_SERVER_IDS_SYM '=' '(' ignore_server_id_list ')'
@@ -2449,12 +2456,12 @@ master_def:
         ;
 
 uint32_or_default:
-          ulong_num     { $$= std::optional<uint32_t>($1); }
-        | DEFAULT { $$= std::nullopt; }
+          ulong_num     { $$= {true, $1}; }
+        | DEFAULT       { $$= {false, 0}; }
         ;
 uint64_or_default:
-          ulonglong_num { $$= std::optional<uint64_t>($1); }
-        | DEFAULT { $$= std::nullopt; }
+          ulonglong_num { $$= {true, $1}; }
+        | DEFAULT       { $$= {false, 0}; }
         ;
 path_or_default:
           TEXT_STRING_sys { $$=  $1.str; DBUG_ASSERT($$); }
@@ -2547,7 +2554,7 @@ master_file_def:
           {
             if (Lex->mi.use_gtid)
               my_yyabort_error((ER_DUP_ARGUMENT, MYF(0), "MASTER_use_gtid"));
-            Lex->mi.use_gtid= [use_gtid= $3](Master_info *mi)
+            Lex->mi.use_gtid= [use_gtid= $3](Master_info_file *mi)
             { mi->master_use_gtid= use_gtid; };
           }
         | MASTER_DEMOTE_TO_SLAVE_SYM '=' bool

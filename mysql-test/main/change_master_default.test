@@ -67,21 +67,7 @@ CALL show_defaultable_fields();
 
 # Those set or left as `DEFAULT` should pick up changes to defaults.
 
-let $restart_parameters=
-  --master-connect-retry=30
-  --skip-master-ssl
-  --master-ssl-ca=default_ca
-  --master-ssl-capath=default_capath
-  --master-ssl-cert=default_cert
-  --master-ssl-cipher=default_cipher
-  --master-ssl-key=default_key
-  --skip-master-ssl-verify-server-cert
-  --master-ssl-crl=default_crl
-  --master-ssl-crlpath=default_crlpath
-  --master-use-gtid=CURRENT_POS
-  --master-retry-count=50000
-  --master-heartbeat-period=15
-  --skip-slave-start;
+--let $restart_parameters= --skip-slave-start --master-connect-retry=30 --skip-master-ssl --master-ssl-ca=default_ca --master-ssl-capath=default_capath --master-ssl-cert=default_cert --master-ssl-cipher=default_cipher --master-ssl-key=default_key --skip-master-ssl-verify-server-cert --master-ssl-crl=default_crl --master-ssl-crlpath=default_crlpath --master-use-gtid=CURRENT_POS --master-retry-count=50000 --master-heartbeat-period=15
 --source include/restart_mysqld.inc # not_embedded
 
 CALL show_defaultable_fields();
@@ -121,13 +107,28 @@ CALL show_defaultable_fields();
 --enable_warnings
 CHANGE MASTER 'unset' TO master_host='127.0.1.3';
 
+# Invalid `--master-heartbeat-period` values should abort the server
+--source include/shutdown_mysqld.inc
+--let $restart_parameters= --master-heartbeat-period=''
+--echo # restart_abort: $restart_parameters
+--write_line "restart_abort: $restart_parameters" $_expect_file_name
+--let $restart_parameters= --master-heartbeat-period=123abc
+--echo # restart_abort: $restart_parameters
+--write_line "restart_abort: $restart_parameters" $_expect_file_name
+--let $restart_parameters= --master-heartbeat-period=-1
+--echo # restart_abort: $restart_parameters
+--write_line "restart_abort: $restart_parameters" $_expect_file_name
+--let $restart_parameters= --master-heartbeat-period=4294967.296
+--echo # restart_abort: $restart_parameters
+--write_line "restart_abort: $restart_parameters" $_expect_file_name
+
+# Numbers between 0 and 0.5 exclusive should warn about rounding to 0 (disabled)
+--let $restart_parameters= --skip-slave-start --master-heartbeat-period=0.000499
+--source include/start_mysqld.inc
+CALL mtr.add_suppression('.*master-heartbeat-period.+0.* disabl.+');
+
 # Test prefixes: adding `auto-` and omitting `skip-`
-let $restart_parameters=
-  --skip-master-ssl --master-ssl
-  --skip-master-ssl-verify-server-cert --master-ssl-verify-server-cert
-  --master-use-gtid=NO --autoset-master-use-gtid
-  --master-heartbeat-period=45 --autoset-master-heartbeat-period
-  --skip-slave-start;
+--let $restart_parameters= --skip-slave-start --skip-master-ssl --master-ssl --skip-master-ssl-verify-server-cert --master-ssl-verify-server-cert --master-use-gtid=NO --autoset-master-use-gtid --master-heartbeat-period=45 --autoset-master-heartbeat-period
 --source include/restart_mysqld.inc
 
 CALL show_defaultable_fields();
