@@ -220,7 +220,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   struct
   {
     bool has_value; uint64_t value;
-#if __cplusplus >= 201703L
+#if __cplusplus >= 201703L || _MSVC_LANG >= 201703L
     template<typename I> operator std::optional<I>()
     { return has_value ? std::optional<I>(value) : std::nullopt; }
 #endif

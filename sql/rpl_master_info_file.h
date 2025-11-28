@@ -22,7 +22,7 @@
   `rpl_master_info_file.h` requires C++17, but RocksDB,
   which transitively includes this file, is still on C++11.
 */
-#if __cplusplus < 201703L
+#if __cplusplus < 201703L && _MSVC_LANG < 201703L
 struct Master_info_file;
 enum struct enum_master_use_gtid {};
 enum struct trilean {};
