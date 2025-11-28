@@ -520,25 +520,18 @@ struct Master_info_file: Info_file
       full advantage of the non-negative `DECIMAL(10,3)` format.
     */
     void save_to(IO_CACHE *file) override {
-      char buf[Int_IO_CACHE::BUF_SIZE<uint32_t>];
+      char buf[Int_IO_CACHE::BUF_SIZE<uint32_t> - /* decimal part */ 3];
+      auto[integer_part, decimal_part]= div(operator uint32_t(), 1000);
       std::to_chars_result result=
-        std::to_chars(buf, &buf[sizeof(buf)], operator uint32_t());
+        std::to_chars(buf, &buf[sizeof(buf)], integer_part);
       DBUG_ASSERT(result.ec == Int_IO_CACHE::ERRC_OK);
-      ptrdiff_t size= result.ptr - buf;
-      if (size > 3) // decimal seconds has ones digit or more
-      {
-        my_b_write(file, reinterpret_cast<const uchar *>(buf), size - 3);
-        my_b_write_byte(file, '.');
-        my_b_write(file, reinterpret_cast<const uchar *>(&result.ptr[-3]), 3);
-      }
-      else
-      {
+      my_b_write(file, reinterpret_cast<const uchar *>(buf), result.ptr - buf);
+      my_b_write_byte(file, '.');
+      result= std::to_chars(buf, &buf[sizeof(buf)], decimal_part);
+      DBUG_ASSERT(result.ec == Int_IO_CACHE::ERRC_OK);
+      for (ptrdiff_t digits= result.ptr - buf; digits < 3; ++digits)
         my_b_write_byte(file, '0');
-        my_b_write_byte(file, '.');
-        for (ptrdiff_t zeroes= size; zeroes < 3; ++zeroes)
-          my_b_write_byte(file, '0');
-        my_b_write(file, reinterpret_cast<const uchar *>(buf), size);
-      }
+      my_b_write(file, reinterpret_cast<const uchar *>(buf), result.ptr - buf);
     }
   }
   /// `Slave_heartbeat_period` of SHOW ALL SLAVES STATUS
