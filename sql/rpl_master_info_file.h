@@ -443,7 +443,8 @@ struct Master_info_file: Info_file
       @param overprecise
         set to `true` if the decimal has more than 3 decimal digits
       @return whether the decimal is out of range
-      @post Output arguments are not changed if the decimal is out of range.
+      @post Output arguments are set on success and
+       not changed if the decimal is out of range.
     */
     static uint from_decimal(
       uint32_t &result, const decimal_t &decimal, bool &overprecise
@@ -485,7 +486,7 @@ struct Master_info_file: Info_file
       @param expected_end This function also checks that the exclusive end
         of the decimal *(which may be `str_end` itself)* is this delimiter.
       @return from_decimal(), or `true` on unexpected contents
-      @post Output arguments are not changed on error.
+      @post Output arguments are set on success and not changed on error.
     */
     static uint from_chars(
       std::optional<uint32_t> &self, const char *str,

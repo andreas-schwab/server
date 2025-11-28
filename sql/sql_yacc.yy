@@ -222,7 +222,7 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
     bool has_value; uint64_t value;
 #if __cplusplus >= 201703L || _MSVC_LANG >= 201703L
     template<typename I> operator std::optional<I>()
-    { return has_value ? std::optional<I>(value) : std::nullopt; }
+    { return has_value ? std::optional(static_cast<I>(value)) : std::nullopt; }
 #endif
   } optional_uint;
   LEX_CSTRING lex_str;

@@ -787,6 +787,7 @@ File_parser_dummy_hook file_parser_dummy_hook;
 /* replication parameters */
 uint report_port= 0;
 char *master_info_file;
+// Options do not reset to default if the default is `nullptr`, so use `auto`.
 char *master_heartbeat_period_str= autoset_my_option;
 char *relay_log_info_file, *report_user, *report_password, *report_host;
 char *opt_relay_logname = 0, *opt_relaylog_index_name=0;
