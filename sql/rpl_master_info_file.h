@@ -15,17 +15,18 @@
   51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA.
 */
 
+#ifndef RPL_MASTER_INFO_FILE_H
+#define RPL_MASTER_INFO_FILE_H
+
 /*FIXME MDEV-38213:
   `rpl_master_info_file.h` requires C++17, but RocksDB,
   which transitively includes this file, is still on C++11.
 */
 #if __cplusplus < 201703L
 struct Master_info_file;
-enum enum_master_use_gtid {};
+enum struct enum_master_use_gtid {};
+enum struct trilean {};
 #else
-
-#ifndef RPL_MASTER_INFO_FILE_H
-#define RPL_MASTER_INFO_FILE_H
 
 #include "rpl_info_file.h"
 #include <unordered_map> // Type of @ref Master_info_file::FIELDS_MAP
@@ -702,5 +703,5 @@ break_for:;
 
 };
 
-#endif // include guard
 #endif // C++ standard guard
+#endif // include guard
