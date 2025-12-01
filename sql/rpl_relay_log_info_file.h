@@ -23,20 +23,20 @@
 struct Relay_log_info_file: Info_file
 {
   /**
-    `@@relay_log_info_file` fields in SHOW SLAVE STATUS order
+    `@@relay_log_info_file` values in SHOW SLAVE STATUS order
     @{
   */
-  String_field<> relay_log_file;
-  Int_field<my_off_t> relay_log_pos;
+  String_value<> relay_log_file;
+  Int_value<my_off_t> relay_log_pos;
   /// Relay_Master_Log_File (of the event *group*)
-  String_field<> read_master_log_file;
+  String_value<> read_master_log_file;
   /// Exec_Master_Log_Pos (of the event *group*)
-  Int_field<my_off_t> read_master_log_pos;
+  Int_value<my_off_t> read_master_log_pos;
   /// SQL_Delay
-  Int_field<uint32_t> sql_delay;
+  Int_value<uint32_t> sql_delay;
   /// }@
 
-  inline static const Mem_fn::List FIELDS_LIST= {
+  inline static const Mem_fn::List VALUE_LIST= {
     &Relay_log_info_file::relay_log_file,
     &Relay_log_info_file::relay_log_pos,
     &Relay_log_info_file::read_master_log_file,
@@ -46,12 +46,12 @@ struct Relay_log_info_file: Info_file
 
   bool load_from_file() override
   {
-    return Info_file::load_from_file(FIELDS_LIST, /* Exec_Master_Log_Pos */ 4);
+    return Info_file::load_from_file(VALUE_LIST, /* Exec_Master_Log_Pos */ 4);
   }
   void save_to_file() override
   {
-    return Info_file::save_to_file(FIELDS_LIST,
-                            FIELDS_LIST.size() + /* line count line */ 1);
+    return Info_file::save_to_file(VALUE_LIST,
+                            VALUE_LIST.size() + /* line count line */ 1);
   }
 };
 

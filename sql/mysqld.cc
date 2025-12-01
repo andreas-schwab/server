@@ -8510,7 +8510,7 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
     else
     {
       bool overprecise;
-      if (Master_info_file::Heartbeat_period_field::from_chars(
+      if (Master_info_file::Heartbeat_period_value::from_chars(
         master_heartbeat_period, master_heartbeat_period_str,
         strchr(master_heartbeat_period_str, '\0'), overprecise, '\0')
       )
@@ -8518,7 +8518,7 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
         sql_print_error(
           "Bad value for master-heartbeat-period; "
           "should be between 0 and %s seconds inclusive.",
-          Master_info_file::Heartbeat_period_field::MAX
+          Master_info_file::Heartbeat_period_value::MAX
         );
         return true;
       }

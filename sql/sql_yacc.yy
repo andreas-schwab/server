@@ -2421,11 +2421,11 @@ master_def:
               auto decimal_buf= my_decimal(),
                   *decimal= $3->val_decimal(&decimal_buf);
               DBUG_ASSERT(decimal);
-              if (Master_info_file::Heartbeat_period_field::from_decimal(
+              if (Master_info_file::Heartbeat_period_value::from_decimal(
                 milliseconds, *decimal, overprecise
               ))
                 my_yyabort_error((ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE, MYF(0),
-                  Master_info_file::Heartbeat_period_field::MAX));
+                  Master_info_file::Heartbeat_period_value::MAX));
               if (unlikely(milliseconds > slave_net_timeout*1000ULL))
                 push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
                   ER_SLAVE_HEARTBEAT_VALUE_OUT_OF_RANGE_MAX,

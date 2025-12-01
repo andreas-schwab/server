@@ -673,7 +673,7 @@ bool Master_info_index::init_all_master_info()
 {
   int thread_mask;
   int err_num= 0, succ_num= 0; // The number of success read Master_info
-  Info_file::String_field<MAX_CONNECTION_NAME+1> sign;
+  Info_file::String_value<MAX_CONNECTION_NAME+1> sign;
   File index_file_nr;
   THD *thd;
   DBUG_ENTER("init_all_master_info");
