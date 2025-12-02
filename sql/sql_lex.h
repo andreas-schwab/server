@@ -382,13 +382,17 @@ struct LEX_MASTER_INFO
     repl_do_domain_ids_opt, repl_ignore_domain_ids_opt;
 
   /**TODO
-    It is possible to apply CHANGE MASTER configs during parsing
-    (in sql_yacc.yy) without stashing them in a @ref LEX_MASTER_INFO.
-    For now, lambdas in the parser code demonstrates this concept while
+    Going through this struct means it must contain a repeated set of CHANGE
+    MASTER and START SLAVE variables that additionally knows which values are
+    not changing, not to mention support for `CHANGE MASTER ...= DEFAULT`.
+    This creates complexity and leads to inconsistency.
+    Instead, it is possible to track and apply CHANGE MASTER configs during
+    parsing (in `sql_yacc.yy`) without stashing them in a @ref LEX_MASTER_INFO.
+    But for now, lambdas in `sql_yacc.yy` demonstrates this concept while
     keeping them deferred to the "post-processing" in change_master().
   */
-  using field_functor= std::function<void(Master_info_file *mi)>;
-  field_functor connect_retry, heartbeat_period, ssl,
+  using mi_functor= std::function<void(Master_info_file *mi)>;
+  mi_functor connect_retry, heartbeat_period, ssl,
     ssl_key, ssl_cert, ssl_ca, ssl_capath, ssl_cipher, ssl_crl, ssl_crlpath,
     ssl_verify_server_cert, retry_count, use_gtid;
 
