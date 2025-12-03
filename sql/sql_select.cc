@@ -6225,7 +6225,8 @@ make_join_statistics(JOIN *join, List<TABLE_LIST> &tables_list,
         Don't do range analysis for materialized derived tables/views (3)
       */
       if ((!s->const_keys.is_clear_all() ||
-           !bitmap_is_clear_all(&s->table->cond_set)) &&              // (1)
+           !bitmap_is_clear_all(&s->table->cond_set) ||
+           thd->variables.optimizer_use_condition_selectivity >= 5) &&// (1)
           !s->table->is_filled_at_execution() &&                      // (2)
           !(s->table->pos_in_table_list->derived &&                   // (3)
             s->table->pos_in_table_list->is_materialized_derived()))  // (3)
