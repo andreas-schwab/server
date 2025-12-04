@@ -615,13 +615,12 @@ fts_create(
 	dict_table_t*	table);			/*!< out: table with FTS
 						indexes */
 
-/*********************************************************************//**
-Run OPTIMIZE on the given table.
-@return DB_SUCCESS if all OK */
+/** Run OPTIMIZE on the given table.
+@param table table to be optimized
+@param thd   thread
+@return DB_SUCCESS if all ok */
 dberr_t
-fts_optimize_table(
-/*===============*/
-	dict_table_t*	table);			/*!< in: table to optimiza */
+fts_optimize_table(dict_table_t *table, THD *thd);
 
 /**********************************************************************//**
 Startup the optimize thread and create the work queue. */

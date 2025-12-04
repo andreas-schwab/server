@@ -1397,7 +1397,7 @@ void fts_optimize_words(fts_optimize_t *optim, dict_index_t *index,
     ut_a(ib_vector_size(optim->words) == 0);
     /* Read the index records to optimize. */
     dberr_t error= fts_index_fetch_nodes(
-      trx, index, word, optim->words, nullptr, AuxCompareMode::LIKE);
+      trx, index, word, optim->words, nullptr, AuxCompareMode::EQUAL);
     if (error == DB_SUCCESS)
     {
       /* There must be some nodes to read. */
@@ -1770,6 +1770,7 @@ fts_optimize_indexes(
 		index = static_cast<dict_index_t*>(
 			ib_vector_getp(fts->indexes, i));
 		error = fts_optimize_index(optim, index);
+		if (error) break;
 	}
 
 	if (error == DB_SUCCESS) {
@@ -1875,7 +1876,7 @@ fts_optimize_table_bk(
 	if (table->is_accessible()
 	    && table->fts && table->fts->cache
 	    && table->fts->cache->deleted >= FTS_OPTIMIZE_THRESHOLD) {
-		error = fts_optimize_table(table);
+		error = fts_optimize_table(table, fts_opt_thd);
 
 		slot->last_run = time(NULL);
 
@@ -1891,13 +1892,12 @@ fts_optimize_table_bk(
 
 	return(error);
 }
-/*********************************************************************//**
-Run OPTIMIZE on the given table.
+/** Run OPTIMIZE on the given table.
+@param table table to be optimized
+@param thd   thread which executes optimize table
 @return DB_SUCCESS if all OK */
 dberr_t
-fts_optimize_table(
-/*===============*/
-	dict_table_t*	table)	/*!< in: table to optimiza */
+fts_optimize_table(dict_table_t *table, THD *thd)
 {
 	if (srv_read_only_mode) {
 		return DB_READ_ONLY;
@@ -1913,6 +1913,7 @@ fts_optimize_table(
 
 	optim = fts_optimize_create(table);
 
+	optim->trx->mysql_thd = thd;
 	// FIXME: Call this only at the start of optimize, currently we
 	// rely on DB_DUPLICATE_KEY to handle corrupting the snapshot.
 

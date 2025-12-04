@@ -15165,7 +15165,7 @@ ha_innobase::optimize(
 		if (m_prebuilt->table->fts && m_prebuilt->table->fts->cache
 		    && m_prebuilt->table->space) {
 			fts_sync_table(m_prebuilt->table);
-			fts_optimize_table(m_prebuilt->table);
+			fts_optimize_table(m_prebuilt->table, thd);
 		}
 		try_alter = false;
 	}
