@@ -527,7 +527,9 @@ dberr_t FTSQueryExecutor::read_all_common(const char *tbl_name,
 }
 
 CommonTableReader::CommonTableReader() : RecordCallback(
-  [this](const rec_t* rec, const dict_index_t* index, const rec_offs* offsets) -> bool {
+  [this](const rec_t* rec, const dict_index_t* index,
+         const rec_offs* offsets) -> bool
+  {
     ulint len;
     const byte* id_data= rec_get_nth_field(rec, offsets, 0, &len);
     if (id_data && len != UNIV_SQL_NULL && len == 8)
@@ -538,7 +540,29 @@ CommonTableReader::CommonTableReader() : RecordCallback(
     return true;
   },
   [](const dtuple_t* search_tuple, const rec_t* rec,
-     const dict_index_t* index, const rec_offs* offsets) -> RecordCompareAction {
-    return RecordCompareAction::PROCESS; /* Process all records */
-  }
-) {}
+     const dict_index_t* index, const rec_offs* offsets) -> RecordCompareAction
+  { return RecordCompareAction::PROCESS; }) {}
+
+
+ConfigReader::ConfigReader() : RecordCallback(
+  [this](const rec_t* rec, const dict_index_t* index,
+         const rec_offs* offsets) -> bool
+  {
+    ulint value_len;
+    const byte *value_data= rec_get_nth_field(rec, offsets, 3, &value_len);
+
+    if (value_data && value_len != UNIV_SQL_NULL && value_len > 0)
+      value_span= span<const char>(
+        reinterpret_cast<const char*>(value_data), value_len);
+    return false;
+  },
+  [](const dtuple_t* search_tuple, const rec_t* rec,
+     const dict_index_t* index, const rec_offs* offsets) -> RecordCompareAction
+  {
+    if (!search_tuple) return RecordCompareAction::PROCESS;
+    uint16_t matched_fields= 0;
+    int cmp_result= cmp_dtuple_rec_with_match(search_tuple, rec, index,
+                                              offsets, &matched_fields);
+    return (cmp_result == 0) ? RecordCompareAction::PROCESS
+                             : RecordCompareAction::STOP;
+  }) {}

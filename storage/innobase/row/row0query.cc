@@ -349,6 +349,7 @@ dberr_t QueryExecutor::update_record(dict_table_t *table,
                                              BTR_STORE_UPDATE);
         dtuple_big_rec_free(big_rec);
       }
+      if (offsets_heap) mem_heap_free(offsets_heap);
     }
   }
   return err;

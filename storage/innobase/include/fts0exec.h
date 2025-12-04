@@ -206,3 +206,11 @@ public:
   const std::vector<doc_id_t>& get_doc_ids() const { return doc_ids; }
   void clear() { doc_ids.clear(); }
 };
+
+/** Callback class for reading FTS config table records */
+class ConfigReader : public RecordCallback
+{
+public:
+  span<const char> value_span;
+  ConfigReader();
+};
