@@ -382,6 +382,9 @@ public:
       resize_write_low<mmap>(lsn, end, len, seq);
   }
 
+  /** SET GLOBAL innodb_log_archive */
+  inline bool set_archive(my_bool archive) noexcept;
+
 private:
   /** Replicate a write to the log.
   @tparam mmap whether the memory-mapped interface is enabled
@@ -544,13 +547,13 @@ private:
   @param ex     whether log_sys.latch is exclusively locked */
   ATTRIBUTE_COLD void archived_mmap_switch_prepare(bool late, bool ex)
     noexcept;
+#endif
 public:
   /** Attempt to finish archived_mmap_switch_prepare().
   @return the current LSN in the new file
   @retval 0 if no switch took place */
   ATTRIBUTE_COLD lsn_t archived_mmap_switch_complete() noexcept;
-#endif
-public:
+
   /** How to write log */
   enum write {
     /** normal writing !log_sys.is_mmap() */

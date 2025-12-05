@@ -84,5 +84,4 @@ Variable_name	Value
 innodb_log_file_size	5242880
 FOUND 1 /InnoDB: Resized log to 6\.000MiB/ in mysqld.1.err
 SET GLOBAL innodb_log_archive=@save_archive;
-# restart
 DROP TABLE t;

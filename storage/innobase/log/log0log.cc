@@ -807,8 +807,6 @@ ATTRIBUTE_COLD std::string log_t::get_archive_path(lsn_t lsn) const
   case '\\':
 #endif
   case '/':
-    break;
-  default:
     trim= true;
     size--;
   }
