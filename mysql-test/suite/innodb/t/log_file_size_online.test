@@ -94,4 +94,7 @@ let SEARCH_PATTERN = InnoDB: Resized log to 6\\.000MiB;
 --source include/search_pattern_in_file.inc
 SET GLOBAL innodb_log_archive=@save_archive;
 
+# Reset innodb_lsn_archived after a run with innodb_log_archive=OFF
+--source include/restart_mysqld.inc
+
 DROP TABLE t;
