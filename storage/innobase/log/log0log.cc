@@ -788,7 +788,6 @@ static void log_write_buf(lsn_t max_length,
   if (UNIV_UNLIKELY(length > max_length))
   {
     ut_ad(!log_sys.archive);
-    ut_ad(!log_sys.archived_lsn);
     log_sys.log.write(offset, {buf, size_t(max_length)});
     length-= size_t(max_length);
     buf+= size_t(max_length);
@@ -798,7 +797,37 @@ static void log_write_buf(lsn_t max_length,
   log_sys.log.write(offset, {buf, length});
 }
 
-static const char *const logfile_new= "ib_logfile_new";
+ATTRIBUTE_COLD std::string log_t::get_archive_path(lsn_t lsn) const
+{
+  size_t size= strlen(srv_log_group_home_dir) +
+    sizeof "/ib_0000000000000000.log";
+  bool trim= false;
+  switch (srv_log_group_home_dir[strlen(srv_log_group_home_dir) - 1]) {
+#ifdef _WIN32
+  case '\\':
+#endif
+  case '/':
+    break;
+  default:
+    trim= true;
+    size--;
+  }
+
+  char stack[FN_REFLEN], *heap= nullptr;
+  char *buf= size < sizeof stack
+    ? stack : (heap= static_cast<char*>(malloc(size)));
+  const int d=
+    snprintf(buf, size,
+             trim ? "%sib_" UINT64PFx ".log" : "%s/ib_" UINT64PFx ".log",
+             srv_log_group_home_dir, lsn);
+  ut_a(d + 1 == int(size));
+  std::string path{buf, size};
+  free(heap);
+  return path;
+}
+
+ATTRIBUTE_COLD std::string log_t::get_next_archive_path() const
+{ return get_archive_path(first_lsn + capacity()); }
 
 ATTRIBUTE_COLD void log_t::archive_new_write(const byte *buf, size_t length,
                                              lsn_t offset) noexcept
@@ -818,7 +847,7 @@ ATTRIBUTE_COLD void log_t::archive_new_write(const byte *buf, size_t length,
   length-= first;
   buf+= first;
 
-  std::string path{get_log_file_path(logfile_new)};
+  std::string path{get_next_archive_path()};
   bool success;
   pfs_os_file_t file=
     os_file_create_func(path.c_str(), OS_FILE_CREATE, OS_LOG_FILE,
@@ -1028,7 +1057,7 @@ void log_t::archived_mmap_switch_prepare(bool late, bool ex) noexcept
 
     do
     {
-      std::string path{get_log_file_path(logfile_new)};
+      std::string path{get_next_archive_path()};
       bool success;
       pfs_os_file_t file=
         os_file_create_func(path.c_str(), OS_FILE_CREATE, OS_LOG_FILE,
@@ -1263,7 +1292,6 @@ lsn_t log_t::write_buf() noexcept
           latch.wr_unlock();
         goto written;
       }
-      archived_lsn= 0;
     }
 
     if (resizing != RETAIN_LATCH)

@@ -490,10 +490,6 @@ public:
     ut_ad(latch_have_any());
     return UNIV_UNLIKELY(archive && resize_buf);
   }
-  /** Attempt to finish archived_mmap_switch_prepare().
-  @return the current LSN in the new file
-  @retval 0 if no switch took place */
-  ATTRIBUTE_COLD lsn_t archived_mmap_switch_complete() noexcept;
   /** Create a new log file when the current one will fill up.
   @param buf     log records to append
   @param length  size of the log records, in bytes
@@ -548,6 +544,11 @@ private:
   @param ex     whether log_sys.latch is exclusively locked */
   ATTRIBUTE_COLD void archived_mmap_switch_prepare(bool late, bool ex)
     noexcept;
+public:
+  /** Attempt to finish archived_mmap_switch_prepare().
+  @return the current LSN in the new file
+  @retval 0 if no switch took place */
+  ATTRIBUTE_COLD lsn_t archived_mmap_switch_complete() noexcept;
 #endif
 public:
   /** How to write log */
@@ -559,6 +560,13 @@ public:
     /** memory-mapped log for log_sys.archive */
     ARCHIVED_MMAP
   };
+
+  /** Generate an archive log file name.
+  @param lsn   first LSN stored in the file
+  @return archive log file name */
+  ATTRIBUTE_COLD std::string get_archive_path(lsn_t lsn) const;
+  /** @return the next archive log file name */
+  ATTRIBUTE_COLD std::string get_next_archive_path() const;
 
   /** Reserve space in the log buffer for appending data.
   @tparam mode  how to write log

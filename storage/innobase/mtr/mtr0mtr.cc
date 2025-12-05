@@ -1283,8 +1283,12 @@ void log_t::resize_write_low(lsn_t lsn, const byte *end,
 inline void log_t::append(byte *&d, const void *s, size_t size) noexcept
 {
   ut_ad(log_sys.latch_have_any());
-  ut_ad(d + size <= log_sys.buf +
-        (log_sys.is_mmap() ? log_sys.file_size : log_sys.buf_size));
+  ut_ad(log_sys.is_mmap()
+        ? ((d >= log_sys.buf && d + size <= log_sys.buf + log_sys.file_size) ||
+           (log_sys.archive &&
+            d >= log_sys.resize_buf &&
+            d + size <= log_sys.resize_buf + log_sys.resize_target))
+        : (d >= log_sys.buf && d + size <= log_sys.buf + log_sys.buf_size));
   memcpy(d, s, size);
   d+= size;
 }
