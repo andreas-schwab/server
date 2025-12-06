@@ -18,6 +18,7 @@
 #include "maria_def.h"
 #include "ma_blockrec.h"                        /* PAGE_SUFFIX_SIZE */
 #include "ma_checkpoint.h"
+#include "ma_crypt.h"
 #include <aria_backup.h>
 
 /**
@@ -30,8 +31,8 @@
   @return X      errno
 */
 
-int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)__attribute__((visibility("default"))) ;
-int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)
+int aria_get_capabilities(File kfile, const char *table_name, ARIA_TABLE_CAPABILITIES *cap)__attribute__((visibility("default"))) ;
+int aria_get_capabilities(File kfile, const char *table_name, ARIA_TABLE_CAPABILITIES *cap)
 {
   MARIA_SHARE share;
   int error= 0;
@@ -42,6 +43,7 @@ int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)
   DBUG_ENTER("aria_get_capabilities");
 
   bzero(cap, sizeof(*cap));
+  bzero(&share, sizeof(share));
   if (my_pread(kfile,share.state.header.file_version, head_length, 0,
                MYF(MY_NABP)))
     DBUG_RETURN(HA_ERR_NOT_A_TABLE);
@@ -67,13 +69,14 @@ int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)
     goto err;
   }
   _ma_base_info_read(disc_cache + base_pos, &share.base);
+  strmake(cap->filename, table_name, sizeof(cap->filename)-1);
   cap->transactional= share.base.born_transactional;
   cap->checksum= MY_TEST(share.options & HA_OPTION_PAGE_CHECKSUM);
   cap->online_backup_safe= cap->transactional && cap->checksum;
   cap->header_size= share.base.keystart;
   cap->keypage_header= ((share.base.born_transactional ?
-                         LSN_STORE_SIZE + TRANSID_SIZE :
-                         0) + KEYPAGE_KEYID_SIZE + KEYPAGE_FLAG_SIZE +
+                         LSN_STORE_SIZE + TRANSID_SIZE : 0) +
+                        KEYPAGE_KEYID_SIZE + KEYPAGE_FLAG_SIZE +
                         KEYPAGE_USED_SIZE);
   cap->block_size= share.base.block_size;
   cap->data_file_type= share.state.header.data_file_type;
@@ -81,10 +84,22 @@ int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)
   cap->compression=    share.base.compression_algorithm;
   cap->encrypted=      MY_TEST(share.base.extra_options &
                                MA_EXTRA_OPTIONS_ENCRYPTED);
+  if (cap->encrypted)
+  {
+    share.data_file_name.str= (char*) table_name;      /* in case of error */
+    if (maria_read_crypt_data(kfile, &share))
+    {
+      error= HA_ERR_DECRYPTION_FAILED;
+      goto err;
+    }
+    cap->crypt_data= share.crypt_data;
+    cap->crypt_page_header_space= share.crypt_page_header_space;
+    cap->keypage_header+= ma_crypt_get_index_page_header_space(&share);
+  }
 
   if (share.state.header.data_file_type == BLOCK_RECORD)
   {
-    /* Calulate how man pages the row bitmap covers. From _ma_bitmap_init() */
+    /* Calulate how many pages the row bitmap covers. From _ma_bitmap_init() */
     aligned_bit_blocks= (cap->block_size - PAGE_SUFFIX_SIZE) / 6;
     /*
       In each 6 bytes, we have 6*8/3 = 16 pages covered
@@ -100,8 +115,24 @@ int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap)
 
 err:
   my_free(disc_cache);
+  if (error)
+    aria_free_capabilities(cap);
   DBUG_RETURN(error);
 } /* aria_get_capabilities */
+
+
+
+void aria_free_capabilities(ARIA_TABLE_CAPABILITIES *cap)
+{
+  if (cap->crypt_data)
+  {
+    MARIA_SHARE share;
+    share.crypt_data= cap->crypt_data;
+    ma_crypt_free(&share);
+    cap->crypt_data= 0;
+  }
+}
+
 
 /****************************************************************************
 **  store MARIA_BASE_INFO
@@ -176,7 +207,8 @@ int aria_read_index(File kfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
 
   share.keypage_header= cap->keypage_header;
   share.block_size= cap->block_size;
-  do
+  share.open_file_name.str= cap->filename;
+  for (;;)
   {
     int error;
     size_t length;
@@ -199,14 +231,44 @@ int aria_read_index(File kfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
       length= _ma_get_page_used(&share, buffer);
       if (length > cap->block_size - CRC_SIZE)
         DBUG_RETURN(HA_ERR_CRASHED);
-      error= maria_page_crc_check(buffer, block, &share,
-                                  MARIA_NO_CRC_NORMAL_PAGE,
-                                  (int) length);
-      if (error == 0 || my_errno != HA_ERR_WRONG_CRC)
-        DBUG_RETURN(error);
+
+      if (cap->encrypted)
+      {
+        /* We have to decrypt block to be able to calculate checksum */
+        PAGECACHE_IO_HOOK_ARGS io_arg;
+        my_bool error;
+        io_arg.data= (void*) &share;
+        io_arg.page= buffer;
+        io_arg.crypt_buf= (uchar*) my_alloca(cap->block_size);
+        io_arg.pageno= block;
+        share.crypt_data= cap->crypt_data;
+        share.silence_encryption_errors= retry < MAX_RETRY ? 1 : 0;
+        share.crypt_page_header_space= cap->crypt_page_header_space;
+
+        error= ma_crypt_index_post_read_hook(0, &io_arg);
+        my_afree(io_arg.crypt_buf);
+        if (error == 0 ||
+            (my_errno != HA_ERR_DECRYPTION_FAILED &&
+             my_errno != HA_ERR_WRONG_CRC))
+          DBUG_RETURN(error);
+      }
+      else
+      {
+        error= maria_page_crc_check(buffer, block, &share,
+                                    MARIA_NO_CRC_NORMAL_PAGE,
+                                    (int) length);
+        if (error == 0 || my_errno != HA_ERR_WRONG_CRC)
+          DBUG_RETURN(error);
+      }
     }
+    if (retry++ >= MAX_RETRY)
+      break;
     my_sleep(100000);                              /* Sleep 0.1 seconds */
-  } while (retry++ < MAX_RETRY);
+  }
+  my_printf_error(my_errno,
+                  "Error reading index file %s  block %lld",
+                  MYF(ME_FATAL|ME_ERROR_LOG),
+                  share.open_file_name.str, block);
   DBUG_RETURN(HA_ERR_WRONG_CRC);
 }
 
@@ -234,7 +296,7 @@ int aria_read_data(File dfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
 
   share.keypage_header= cap->keypage_header;
   share.block_size= cap->block_size;
-
+  share.open_file_name.str= cap->filename;
   if (!cap->online_backup_safe)
   {
     *bytes_read= my_pread(dfile, buffer, cap->block_size,
@@ -245,7 +307,7 @@ int aria_read_data(File dfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
   }
 
   *bytes_read= cap->block_size;
-  do
+  for (;;)
   {
     int error;
     size_t length;
@@ -258,24 +320,49 @@ int aria_read_data(File dfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
         DBUG_RETURN(my_errno ? my_errno : -1);
     }
 
-    /* If not transactional or key file header, there are no checksums */
-    if (!cap->online_backup_safe)
-      DBUG_RETURN(length == cap->block_size ? 0 : HA_ERR_CRASHED);
-
     if (length == cap->block_size)
     {
       if (!_ma_check_if_zero(buffer, share.block_size - CRC_SIZE))
-       error= 0;
+        DBUG_RETURN(0);
+      /* Test if encrypted pages. Note that bitmap pages are not encrypted */
+      if (cap->encrypted && (block % cap->bitmap_pages_covered))
+      {
+        /* We have to decrypt block to be able to calculate checksum */
+        PAGECACHE_IO_HOOK_ARGS io_arg;
+        my_bool error;
+        io_arg.data= (void*) &share;
+        io_arg.page= buffer;
+        io_arg.crypt_buf= (uchar*) my_alloca(cap->block_size);
+        io_arg.pageno= block;
+        share.crypt_data= cap->crypt_data;
+        share.silence_encryption_errors= retry < MAX_RETRY ? 1 : 0;
+        share.crypt_page_header_space= cap->crypt_page_header_space;
+
+        error= ma_crypt_data_post_read_hook(0, &io_arg);
+        my_afree(io_arg.crypt_buf);
+        if (error == 0 ||
+            (my_errno != HA_ERR_DECRYPTION_FAILED &&
+             my_errno != HA_ERR_WRONG_CRC))
+          DBUG_RETURN(error);
+      }
       else
+      {
         error= maria_page_crc_check(buffer, block, &share,
-                                  ((block % cap->bitmap_pages_covered) == 0 ?
-                                   MARIA_NO_CRC_BITMAP_PAGE :
-                                   MARIA_NO_CRC_NORMAL_PAGE),
-                                  share.block_size - CRC_SIZE);
-     if (error == 0 || my_errno != HA_ERR_WRONG_CRC)
-        DBUG_RETURN(error);
+                                    ((block % cap->bitmap_pages_covered) == 0 ?
+                                     MARIA_NO_CRC_BITMAP_PAGE :
+                                     MARIA_NO_CRC_NORMAL_PAGE),
+                                    share.block_size - CRC_SIZE);
+        if (error == 0 || my_errno != HA_ERR_WRONG_CRC)
+          DBUG_RETURN(error);
+      }
     }
+    if (retry++ >= MAX_RETRY)
+      break;
     my_sleep(100000);                              /* Sleep 0.1 seconds */
-  } while (retry++ < MAX_RETRY);
-    DBUG_RETURN(HA_ERR_WRONG_CRC);
+  }
+  my_printf_error(my_errno,
+                  "Error reading data file %s  block %lld",
+                  MYF(ME_FATAL|ME_ERROR_LOG),
+                  share.open_file_name.str, block);
+  DBUG_RETURN(HA_ERR_WRONG_CRC);
 }

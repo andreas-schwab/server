@@ -17,9 +17,13 @@
 
 C_MODE_START
 
+typedef struct st_maria_crypt_data MARIA_CRYPT_DATA;
+
 typedef struct st_aria_table_capabilities
 {
   my_off_t header_size;
+  MARIA_CRYPT_DATA *crypt_data;
+  uint crypt_page_header_space;
   ulong bitmap_pages_covered;
   uint block_size;
   uint keypage_header;
@@ -32,9 +36,11 @@ typedef struct st_aria_table_capabilities
   /* s3 capabilities */
   ulong s3_block_size;
   uint8 compression;
+  char filename[FN_REFLEN];
 } ARIA_TABLE_CAPABILITIES;
 
-int aria_get_capabilities(File kfile, ARIA_TABLE_CAPABILITIES *cap);
+int aria_get_capabilities(File kfile, const char *table_name, ARIA_TABLE_CAPABILITIES *cap);
+void aria_free_capabilities(ARIA_TABLE_CAPABILITIES *cap);
 int aria_read_index(File kfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
                     uchar *buffer);
 int aria_read_data(File dfile, ARIA_TABLE_CAPABILITIES *cap, ulonglong block,
