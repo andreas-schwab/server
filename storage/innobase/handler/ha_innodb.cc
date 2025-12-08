@@ -19053,7 +19053,7 @@ static MYSQL_SYSVAR_ENUM(flush_method, innodb_flush_method,
 
 static MYSQL_SYSVAR_STR(log_group_home_dir, srv_log_group_home_dir,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
-  "Path to ib_logfile0", NULL, NULL, NULL);
+  "Path to ib_logfile0 or ib_*.log", NULL, NULL, NULL);
 
 static MYSQL_SYSVAR_DOUBLE(max_dirty_pages_pct, srv_max_buf_pool_modified_pct,
   PLUGIN_VAR_RQCMDARG,
@@ -19417,7 +19417,7 @@ static MYSQL_SYSVAR_UINT(log_buffer_size, log_sys.buf_size,
   NULL, NULL, 16U << 20, 2U << 20, log_sys.buf_size_max, 4096);
 
   static constexpr const char *innodb_log_file_mmap_description=
-    "Whether ib_logfile0"
+    "Whether the log"
     " resides in persistent memory (when supported) or"
     " should initially be memory-mapped";
 static MYSQL_SYSVAR_BOOL(log_file_mmap, log_sys.log_mmap,
@@ -19434,7 +19434,7 @@ static MYSQL_SYSVAR_BOOL(log_file_buffering, log_sys.log_buffered,
 
 static MYSQL_SYSVAR_BOOL(log_file_write_through, log_sys.log_write_through,
   PLUGIN_VAR_OPCMDARG,
-  "Whether each write to ib_logfile0 is write through",
+  "Whether each write to the log is write through",
   nullptr, innodb_log_file_write_through_update, FALSE);
 
 static MYSQL_SYSVAR_BOOL(data_file_buffering, fil_system.buffered,
@@ -19509,7 +19509,7 @@ static MYSQL_SYSVAR_UINT64_T(log_recovery_target, recv_sys.rpo,
 
 static MYSQL_SYSVAR_ULONGLONG(log_file_size, srv_log_file_size,
   PLUGIN_VAR_RQCMDARG,
-  "Desired size of ib_logfile0 in bytes",
+  "Desired log file size in bytes",
   nullptr, innodb_log_file_size_update,
   96 << 20, 4 << 20, std::numeric_limits<ulonglong>::max(), 4096);
 
