@@ -349,7 +349,6 @@ ATTRIBUTE_COLD lsn_t log_t::archived_mmap_switch_complete() noexcept
     return 0;
   persist(lsn);
   my_munmap(buf, file_size);
-  /* TODO: make the file read-only */
   buf= resize_buf;
   resize_buf= nullptr;
   first_lsn= end_lsn;
@@ -928,8 +927,8 @@ log_t::append_prepare<log_t::ARCHIVED_MMAP>(size_t size, bool ex) noexcept
                        first_lsn + capacity()) && !resize_buf)
   {
     /* The following is inlined here instead of being part of
-    append_prepare_wait(), in order to increase the locality of reference
-    and to set the WRITE_BACKOFF flag as soon as possible. */
+    archive_mmap_switch_prepare() below, in order to increase the
+    locality of reference and to expedite setting the WRITE_BACKOFF flag. */
     bool late(write_lsn_offset.fetch_or(WRITE_BACKOFF) & WRITE_BACKOFF);
     /* Subtract our LSN overshoot. */
     write_lsn_offset.fetch_sub(size);
@@ -943,7 +942,6 @@ log_t::append_prepare<log_t::ARCHIVED_MMAP>(size_t size, bool ex) noexcept
 
 ATTRIBUTE_COLD void log_t::append_prepare_wait(bool late, bool ex) noexcept
 {
-  ut_ad(!archive);
   if (UNIV_LIKELY(!ex))
   {
     latch.rd_unlock();

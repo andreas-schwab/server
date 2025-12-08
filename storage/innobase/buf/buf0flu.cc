@@ -1890,14 +1890,32 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     archived_lsn= checkpoint_lsn;
   else if (resize_log.is_opened())
   {
+    /* Make the previous archived log file read-only */
 #ifdef _WIN32
     resize_log.close();
-    SetFileAttributesA(get_archive_path(/* FIXME: old_*/first_lsn),
+    SetFileAttributesA(get_archive_path(first_lsn),
                        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE);
 #else
-    fchmod(resize_log.m_file, 0444);
+    struct stat st;
+    if (!fstat(resize_log.m_file, &st))
+      st.st_mode&= 0444;
+    else
+      st.st_mode= 0444;
+    fchmod(resize_log.m_file, st.st_mode);
     resize_log.close();
 #endif
+#ifdef HAVE_PMEM
+    if (!is_mmap())
+#endif
+    {
+      /* Mimic archived_mmap_switch_complete() */
+      ut_ad(current_lsn >= first_lsn + capacity());
+      first_lsn+= capacity();
+      file_size= resize_target;
+    }
+
+    ut_ad(current_lsn >= first_lsn);
+    ut_ad(current_lsn < first_lsn + capacity());
   }
 
   DBUG_PRINT("ib_log", ("checkpoint ended at " LSN_PF ", flushed to " LSN_PF,

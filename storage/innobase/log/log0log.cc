@@ -855,10 +855,10 @@ ATTRIBUTE_COLD void log_t::archive_new_write(const byte *buf, size_t length,
   {
     if (os_file_set_size(path.c_str(), file, resize_target))
     {
-      log_sys.log.close();
-      log_sys.log.m_file= file;
+      resize_log= log;
+      log.m_file= file;
       if (length)
-        log_sys.log.write(START_OFFSET, {buf, length});
+        log.write(START_OFFSET, {buf, length});
       return;
     }
     os_file_close(file);
