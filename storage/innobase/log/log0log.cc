@@ -1052,12 +1052,13 @@ void log_t::archived_mmap_switch_prepare(bool late, bool ex) noexcept
     ut_ad(!resize_in_progress());
     ut_ad(resize_target >= 4U << 20);
     ut_ad(is_latest());
+    ut_ad(!resize_log.is_opened());
 
     do
     {
       std::string path{get_next_archive_path()};
       bool success;
-      pfs_os_file_t file=
+      os_file_t file=
         os_file_create_func(path.c_str(), OS_FILE_CREATE, OS_LOG_FILE,
                             false, &success);
       ut_ad(success == (file != OS_FILE_CLOSED));
@@ -1068,10 +1069,15 @@ void log_t::archived_mmap_switch_prepare(bool late, bool ex) noexcept
           bool is_pmem{false};
           resize_buf= static_cast<byte*>(::log_mmap(file, is_pmem,
                                                     resize_target));
-          os_file_close(file);
+          IF_WIN(os_file_close(file),);
           if (resize_buf != MAP_FAILED)
+          {
+            /* Will be closed in write_checkpoint() */
+            IF_WIN(,resize_log= file);
             continue;
+          }
           resize_buf= nullptr;
+          IF_WIN(,os_file_close(file));
         }
       }
 

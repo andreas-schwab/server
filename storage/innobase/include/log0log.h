@@ -253,7 +253,8 @@ public:
   /** Log file */
   log_file_t log;
 private:
-  /** Log file being constructed during resizing; protected by latch */
+  /** Log file being constructed during resizing,
+  or the previous archived log file; protected by latch */
   log_file_t resize_log;
   /** size of resize_log, or the requested innodb_log_file_size
   of the next file created if archive==TRUE; protected by latch */

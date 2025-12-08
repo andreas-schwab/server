@@ -1888,6 +1888,17 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
   last_checkpoint_lsn= checkpoint_lsn;
   if (!archive)
     archived_lsn= checkpoint_lsn;
+  else if (resize_log.is_opened())
+  {
+#ifdef _WIN32
+    resize_log.close();
+    SetFileAttributesA(get_archive_path(/* FIXME: old_*/first_lsn),
+                       FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE);
+#else
+    fchmod(resize_log.m_file, 0444);
+    resize_log.close();
+#endif
+  }
 
   DBUG_PRINT("ib_log", ("checkpoint ended at " LSN_PF ", flushed to " LSN_PF,
                         checkpoint_lsn, get_flushed_lsn()));
