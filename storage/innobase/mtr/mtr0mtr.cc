@@ -1405,11 +1405,11 @@ wrote_trailer:
     return {start.first, log_close(mtr->m_commit_lsn)};
   case log_t::WRITE_NORMAL:
     log_sys.resize_write<false>(start.first, start.second, len, size);
-    return {start.first, log_sys.archive
-            ? (log_sys.get_first_lsn() > log_sys.last_checkpoint_lsn
-               ? log_sys.get_first_lsn() : 0)
-            : log_close(mtr->m_commit_lsn)};
   }
+  return {start.first, log_sys.archive
+          ? (log_sys.get_first_lsn() > log_sys.last_checkpoint_lsn
+             ? log_sys.get_first_lsn() : 0)
+          : log_close(mtr->m_commit_lsn)};
 }
 
 bool mtr_t::have_x_latch(const buf_block_t &block) const
