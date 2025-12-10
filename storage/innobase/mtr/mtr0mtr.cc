@@ -1308,7 +1308,9 @@ mtr_t::finish_writer(mtr_t *mtr, size_t len)
     log_sys.append_prepare<mode>(len, mtr->m_latch_ex);
 
   if (mode == log_t::WRITE_NORMAL)
+#ifdef HAVE_PMEM
   write_normal:
+#endif
     for (const mtr_buf_t::block_t &b : mtr->m_log)
       log_sys.append(start.second, b.begin(), b.used());
 #ifdef HAVE_PMEM

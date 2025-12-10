@@ -1893,7 +1893,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     /* Make the previous archived log file read-only */
 #ifdef _WIN32
     resize_log.close();
-    SetFileAttributesA(get_archive_path(first_lsn),
+    SetFileAttributesA(get_archive_path(first_lsn).c_str(),
                        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE);
 #else
     struct stat st;
