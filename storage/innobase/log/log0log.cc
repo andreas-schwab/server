@@ -599,6 +599,157 @@ void log_t::set_write_through(bool write_through)
   log_resize_release();
 }
 
+/** Rewrite the log file header in set_archive()
+@param archive  the new value of innodb_log_archive */
+void log_t::header_rewrite(my_bool archive) noexcept
+{
+  ut_ad(!resize_buf);
+  ut_ad(this->archive == !archive);
+
+  /* We will rewrite the log file header while the file
+  name is not ib_logfile0. That is, the archived log file
+  recovery will accept both the circular and the archived
+  format for the last file. */
+
+  byte* c= checkpoint_buf;
+  lsn_t end_lsn= first_lsn + 1; // FIXME: store this in log_sys?
+  ut_ad(end_lsn > first_lsn);
+  ut_ad(!archive || end_lsn <= first_lsn + ~0U);
+#ifdef HAVE_PMEM
+  if (!c)
+  {
+    ut_ad(is_mmap());
+    if (!archive)
+    {
+      memset_aligned<512>(buf + 512, 0, START_OFFSET - 512);
+      c= buf + CHECKPOINT_1;
+      mach_write_to_8(my_assume_aligned<8>(c), next_checkpoint_lsn);
+      mach_write_to_8(my_assume_aligned<8>(c + 8), end_lsn);
+      mach_write_to_4(my_assume_aligned<4>(c + 60), my_crc32c(0, c, 60));
+      pmem_persist(buf + 512, START_OFFSET - 512);
+      header_write(buf, first_lsn, is_encrypted());
+      memset_aligned<512>(buf + 512, 0, CHECKPOINT_1 - 512);
+      pmem_persist(buf, CHECKPOINT_1);
+    }
+    else
+    {
+      mach_write_to_4(buf, uint32_t(end_lsn - first_lsn));
+      memset(buf + 4, 0, 60 - 4);
+      pmem_persist(buf, 64);
+      memset_aligned<64>(buf + 64, 0, START_OFFSET - 64);
+      pmem_persist(buf, START_OFFSET);
+    }
+    return;
+  }
+#endif
+  memset_aligned<512>(c, 0, write_size);
+
+  if (!archive)
+  {
+    mach_write_to_8(my_assume_aligned<8>(c), next_checkpoint_lsn);
+    mach_write_to_8(my_assume_aligned<8>(c + 8), end_lsn);
+    mach_write_to_4(my_assume_aligned<4>(c + 60), my_crc32c(0, c, 60));
+    log.write(CHECKPOINT_1, {c, write_size});
+    os_file_flush(log.m_file);
+    memset_aligned<512>(c, 0, write_size);
+    for (size_t offset= CHECKPOINT_1; (offset+= write_size) < START_OFFSET;)
+      log.write(offset, {c, write_size});
+    header_write(c, first_lsn, is_encrypted());
+    if (write_size > 512)
+      memset_aligned<512>(c + 512, 0, write_size - 512);
+    log.write(0, {c, write_size});
+    os_file_flush(log.m_file);
+    memset_aligned<512>(c, 0, write_size);
+    for (size_t offset= 0; (offset+= write_size) < CHECKPOINT_1;)
+      log.write(offset, {c, write_size});
+  }
+  else
+  {
+    mach_write_to_4(c, uint32_t(end_lsn - first_lsn));
+    log.write(0, {c, write_size});
+    os_file_flush(log.m_file);
+    memset_aligned<512>(c, 0, write_size);
+    for (size_t offset= 0; (offset+= write_size) < START_OFFSET;)
+      log.write(offset, {c, write_size});
+  }
+
+  os_file_flush(log.m_file);
+}
+
+/** SET GLOBAL innodb_log_archive
+@param archive  the new value of innodb_log_archive */
+void log_t::set_archive(my_bool archive) noexcept
+{
+  for (;;)
+  {
+    IF_WIN(log_resize_acquire(), latch.wr_lock(SRW_LOCK_CALL));
+    if (resize_in_progress())
+    {
+      my_printf_error(ER_WRONG_USAGE,
+                      "SET GLOBAL innodb_log_file_size is in progress",
+                      MYF(0));
+      break;
+    }
+    if (archive == this->archive)
+      break;
+#ifdef HAVE_PMEM
+    if (is_backoff() && is_mmap())
+    {
+      /* Prevent a race condition with append_prepare() */
+      IF_WIN(log_resize_release(), latch.wr_unlock());
+      continue;
+    }
+#endif
+    ut_ad(!resize_buf); /* FIXME: wait for write_checkpoint() */
+
+    std::string normal_name{get_log_file_path()};
+    std::string arch_name{get_archive_path(first_lsn)};
+
+    const char *old_name= normal_name.c_str();
+    const char *new_name= arch_name.c_str();
+    if (!archive)
+    {
+      std::swap(old_name, new_name);
+      header_rewrite(archive);
+    }
+
+#ifdef _WIN32
+    /* On Microsoft Windows, there must be no open file handles to a
+    file that is being renamed. */
+    if (const dberr_t err= log.close())
+      log_close_failed(err);
+#endif
+    int fail= my_rename(old_name, new_name, MY_SYNC_DIR);
+#ifdef _WIN32
+    {
+      bool success;
+      log.m_file= os_file_create_func(fail ? old_name : new_name,
+                                      OS_FILE_OPEN, OS_LOG_FILE,
+                                      false, &success);
+      ut_a(log.m_file != OS_FILE_CLOSED);
+    }
+#endif
+    if (fail)
+    {
+      my_error(ER_ERROR_ON_RENAME, MYF(0), old_name, new_name, my_errno);
+      break;
+    }
+
+    if (archive)
+    {
+      header_rewrite(archive);
+
+      archived_lsn= next_checkpoint_lsn;
+      archive_set_size();
+    }
+    this->archive= archive;
+    mtr_t::finisher_update();
+    break;
+  }
+
+  IF_WIN(log_resize_release(), latch.wr_unlock());
+}
+
 /** Start resizing the log and release the exclusive latch.
 @param size  requested new file_size
 @param thd   the current thread identifier

@@ -19447,44 +19447,10 @@ static MYSQL_SYSVAR_BOOL(data_file_write_through, fil_system.write_through,
   "Whether each write to data files writes through",
   nullptr, innodb_data_file_write_through_update, FALSE);
 
-inline bool log_t::set_archive(my_bool archive) noexcept
-{
-  bool fail{false};
-  for (;;)
-  {
-    latch.wr_lock(SRW_LOCK_CALL);
-    fail= resize_in_progress();
-    if (fail)
-      break;
-#ifdef HAVE_PMEM
-    if (is_backoff() && is_mmap())
-    {
-      /* Prevent a race condition with append_prepare() */
-      latch.wr_unlock();
-      continue;
-    }
-#endif
-    this->archive= archive;
-    if (archive)
-    {
-      archived_lsn= next_checkpoint_lsn;
-      archive_set_size();
-      /* TODO: rename ib_logfile0 to archived file; update header */
-    }
-    mtr_t::finisher_update();
-    break;
-  }
-
-  latch.wr_unlock();
-  return fail;
-}
-
 static void innodb_log_archive_update(THD *, st_mysql_sys_var*,
                                       void *, const void *save) noexcept
 {
-  if (log_sys.set_archive(*static_cast<const my_bool*>(save)))
-    my_printf_error(ER_WRONG_USAGE,
-                    "SET GLOBAL innodb_log_file_size is in progress", MYF(0));
+  log_sys.set_archive(*static_cast<const my_bool*>(save));
 }
 
 static MYSQL_SYSVAR_BOOL(log_archive, log_sys.archive,

@@ -383,8 +383,9 @@ public:
       resize_write_low<mmap>(lsn, end, len, seq);
   }
 
-  /** SET GLOBAL innodb_log_archive */
-  inline bool set_archive(my_bool archive) noexcept;
+  /** SET GLOBAL innodb_log_archive
+  @param archive  the new value of innodb_log_archive */
+  void set_archive(my_bool archive) noexcept;
 
 private:
   /** Replicate a write to the log.
@@ -431,6 +432,10 @@ public:
   @param lsn        log sequence number corresponding to log_sys.START_OFFSET
   @param encrypted  whether the log is encrypted */
   static void header_write(byte *buf, lsn_t lsn, bool encrypted) noexcept;
+
+  /** Rewrite the log file header in set_archive()
+  @param archive  the new value of innodb_log_archive */
+  void header_rewrite(my_bool archive) noexcept;
 
   /** @return an estimate of get_lsn(),
   using acquire-release ordering with write_buf() or persist();
