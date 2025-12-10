@@ -355,23 +355,22 @@ ATTRIBUTE_COLD lsn_t log_t::archived_mmap_switch_complete() noexcept
   file_size= resize_target;
   return lsn;
 }
-#endif
 
-template<bool mmap>
-ATTRIBUTE_NOINLINE void mtr_t::commit_log_release() noexcept
+template<>
+ATTRIBUTE_NOINLINE void mtr_t::commit_log_release<true>() noexcept
 {
   if (m_latch_ex)
   {
   completed:
-    const lsn_t lsn{mmap ? log_sys.archived_mmap_switch_complete() : 0};
+    const lsn_t lsn{log_sys.archived_mmap_switch_complete()};
     log_sys.latch.wr_unlock();
     m_latch_ex= false;
-    if (mmap && lsn)
+    if (lsn)
       buf_flush_ahead(lsn, true);
   }
   else
   {
-    const bool retry{mmap && log_sys.archived_mmap_switch()};
+    const bool retry{log_sys.archived_mmap_switch()};
     log_sys.latch.rd_unlock();
     if (retry)
     {
@@ -379,6 +378,19 @@ ATTRIBUTE_NOINLINE void mtr_t::commit_log_release() noexcept
       goto completed;
     }
   }
+}
+#endif
+
+template<>
+ATTRIBUTE_NOINLINE void mtr_t::commit_log_release<false>() noexcept
+{
+  if (m_latch_ex)
+  {
+    log_sys.latch.wr_unlock();
+    m_latch_ex= false;
+  }
+  else
+    log_sys.latch.rd_unlock();
 }
 
 static ATTRIBUTE_NOINLINE ATTRIBUTE_COLD
