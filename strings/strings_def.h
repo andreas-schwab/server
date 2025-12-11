@@ -200,9 +200,6 @@ uint my_8bit_collation_flags_from_data(CHARSET_INFO *cs);
 
 /* Macros for hashing characters */
 
-#define MY_HASH_ADD_MARIADB(A, B, value) \
-  do { A^= (((A & 63)+B)*((value)))+ (A << 8); B+=3; } while(0)
-
 static inline void MY_HASH_ADD(my_hasher_st *hasher, uchar value)
 {
   DBUG_ASSERT((hasher->m_hash_byte == NULL) == (hasher->m_hash_str == NULL));

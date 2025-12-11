@@ -524,6 +524,9 @@ extern my_hasher_st my_hasher_crc32c();
 extern my_hasher_st my_hasher_xxh32();
 extern my_hasher_st my_hasher_xxh3();
 
+#define MY_HASH_ADD_MARIADB(A, B, value) \
+  do { A^= (((A & 63)+B)*((value)))+ (A << 8); B+=3; } while(0)
+
 /* See strings/CHARSET_INFO.txt for information about this structure  */
 struct my_collation_handler_st
 {
