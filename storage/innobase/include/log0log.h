@@ -35,22 +35,6 @@ Created 12/9/1995 Heikki Tuuri
 
 using st_::span;
 
-static const char LOG_FILE_NAME_PREFIX[] = "ib_logfile";
-static const char LOG_FILE_NAME[] = "ib_logfile0";
-
-/** Composes full path for a redo log file
-@param[in]	filename	name of the redo log file
-@return path with log file name*/
-std::string get_log_file_path(const char *filename= LOG_FILE_NAME);
-
-/** Delete log file.
-@param[in]	suffix	suffix of the file name */
-static inline void delete_log_file(const char* suffix)
-{
-  auto path = get_log_file_path(LOG_FILE_NAME_PREFIX).append(suffix);
-  os_file_delete_if_exists_func(path.c_str(), nullptr);
-}
-
 struct completion_callback;
 
 /** Ensure that the log has been written to the log file up to a given
@@ -570,10 +554,21 @@ public:
     ARCHIVED_MMAP
   };
 
+  /** Get a name of a circular log file.
+  @param i  log file number (0 to 101)
+  @return the path name of the log file */
+  ATTRIBUTE_COLD static std::string get_circular_path(size_t i= 0);
+
+  /** @return the name of the current log file */
+  ATTRIBUTE_COLD std::string get_path() const;
+
   /** Generate an archive log file name.
   @param lsn   first LSN stored in the file
   @return archive log file name */
   ATTRIBUTE_COLD std::string get_archive_path(lsn_t lsn) const;
+  /** @return the current archive log file name */
+  std::string get_archive_path() const { return get_archive_path(first_lsn); }
+
   /** @return the next archive log file name */
   ATTRIBUTE_COLD std::string get_next_archive_path() const;
 

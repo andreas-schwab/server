@@ -67,6 +67,9 @@ Protected by log_sys.latch. */
 bool	recv_no_log_write = false;
 #endif /* UNIV_DEBUG */
 
+/** The circular log file base name */
+static const char *const ib_logfile= "ib_logfile";
+
 /** Error from mlog_decode_len() */
 constexpr uint32_t MLOG_DECODE_ERROR= ~0U;
 
@@ -1711,7 +1714,7 @@ dberr_t recv_sys_t::find_checkpoint()
   if (files.empty())
   {
     file_checkpoint= 0;
-    std::string path{get_log_file_path()};
+    std::string path{log_sys.get_circular_path()}; // FIXME: try archive files as well
     bool success;
     os_file_t file{os_file_create_func(path.c_str(),
                                        OS_FILE_OPEN,
@@ -1742,7 +1745,7 @@ dberr_t recv_sys_t::find_checkpoint()
     recv_sys.files.emplace_back(file);
     for (int i= 1; i < 101; i++)
     {
-      path= get_log_file_path(LOG_FILE_NAME_PREFIX).append(std::to_string(i));
+      path= log_sys.get_circular_path(i);
       file= os_file_create_func(path.c_str(),
                                 OS_FILE_OPEN_SILENT,
                                 OS_LOG_FILE, true, &success);

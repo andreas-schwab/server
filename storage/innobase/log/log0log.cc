@@ -561,10 +561,9 @@ void log_t::set_buffered(bool buffered) noexcept
   {
     if (const dberr_t err= log.close())
       log_close_failed(err);
-    std::string path{get_log_file_path()};
     log_buffered= buffered;
     bool success;
-    log.m_file= os_file_create_func(path.c_str(),
+    log.m_file= os_file_create_func(get_path().c_str(),
                                     OS_FILE_OPEN, OS_LOG_FILE,
                                     false, &success);
     ut_a(log.m_file != OS_FILE_CLOSED);
@@ -585,10 +584,9 @@ void log_t::set_write_through(bool write_through)
   {
     os_file_close_func(log.m_file);
     log.m_file= OS_FILE_CLOSED;
-    std::string path{get_log_file_path()};
     log_write_through= write_through;
     bool success;
-    log.m_file= os_file_create_func(path.c_str(),
+    log.m_file= os_file_create_func(get_path().c_str(),
                                     OS_FILE_OPEN, OS_LOG_FILE,
                                     false, &success);
     ut_a(log.m_file != OS_FILE_CLOSED);
@@ -702,8 +700,8 @@ void log_t::set_archive(my_bool archive) noexcept
 #endif
     ut_ad(!resize_buf); /* FIXME: wait for write_checkpoint() */
 
-    std::string normal_name{get_log_file_path()};
-    std::string arch_name{get_archive_path(first_lsn)};
+    std::string normal_name{get_circular_path()};
+    std::string arch_name{get_archive_path()};
 
     const char *old_name= normal_name.c_str();
     const char *new_name= arch_name.c_str();
@@ -786,7 +784,7 @@ log_t::resize_start_status log_t::resize_start(os_offset_t size, void *thd)
     ut_ad(!resize_buf);
     ut_ad(!resize_flush_buf);
     ut_ad(!resize_initiator);
-    std::string path{get_log_file_path("ib_logfile101")};
+    const std::string path{get_circular_path(101)};
     bool success;
     resize_initiator= thd;
     resize_lsn.store(1, std::memory_order_relaxed);
@@ -910,8 +908,8 @@ void log_t::resize_abort(void *thd) noexcept
     resize_target= 0;
     resize_lsn.store(0, std::memory_order_relaxed);
     resize_initiator= nullptr;
-    std::string path{get_log_file_path("ib_logfile101")};
-    IF_WIN(DeleteFile(path.c_str()), unlink(path.c_str()));
+    IF_WIN(DeleteFile(get_circular_path(101).c_str()),
+           unlink(get_circular_path(101).c_str()));
     writer_update(false);
   }
 
@@ -1935,10 +1933,10 @@ void log_t::close()
   recv_sys.close();
 }
 
-std::string get_log_file_path(const char *filename)
+ATTRIBUTE_COLD std::string log_t::get_circular_path(size_t i)
 {
-  const size_t size= strlen(srv_log_group_home_dir) + /* path separator */ 1 +
-                     strlen(filename) + /* longest suffix */ 3;
+  ut_ad(i <= 101);
+  const size_t size= strlen(srv_log_group_home_dir) + sizeof "/ib_logfile101";
   std::string path;
   path.reserve(size);
   path.assign(srv_log_group_home_dir);
@@ -1952,7 +1950,10 @@ std::string get_log_file_path(const char *filename)
   default:
     path.push_back('/');
   }
-  path.append(filename);
+  return path.append("ib_logfile").append(std::to_string(i));
+}
 
-  return path;
+ATTRIBUTE_COLD std::string log_t::get_path() const
+{
+  return archive ? get_archive_path() : get_circular_path();
 }

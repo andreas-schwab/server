@@ -1842,6 +1842,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
   {
     ut_ad(!is_opened());
     resizing= resize_lsn.load(std::memory_order_relaxed);
+    ut_ad(!resizing || !archive);
 
     if (resizing > 1 && resizing <= next_checkpoint_lsn)
     {
@@ -1860,6 +1861,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     latch.wr_unlock();
     log_write_and_flush_prepare();
     resizing= resize_lsn.load(std::memory_order_relaxed);
+    ut_ad(!resizing || !archive);
     ut_ad(ut_is_2pow(write_size));
     ut_ad(write_size >= 512);
     ut_ad(write_size <= 4096);
@@ -1880,6 +1882,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     ut_ad(checkpoint_pending);
     checkpoint_pending= false;
     resizing= resize_lsn.load(std::memory_order_relaxed);
+    ut_ad(!resizing || !archive);
   }
 
   ut_ad(!checkpoint_pending);
@@ -1893,7 +1896,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
     /* Make the previous archived log file read-only */
 #ifdef _WIN32
     resize_log.close();
-    SetFileAttributesA(get_archive_path(first_lsn).c_str(),
+    SetFileAttributesA(get_archive_path().c_str(),
                        FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE);
 #else
     struct stat st;
@@ -1933,6 +1936,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
 
   if (resizing > 1 && resizing <= checkpoint_lsn)
   {
+    ut_ad(!archive);
     ut_ad(is_mmap() == !resize_flush_buf);
     ut_ad(is_mmap() == !resize_log.is_opened());
 
