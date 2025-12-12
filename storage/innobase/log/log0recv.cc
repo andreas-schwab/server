@@ -67,9 +67,6 @@ Protected by log_sys.latch. */
 bool	recv_no_log_write = false;
 #endif /* UNIV_DEBUG */
 
-/** The circular log file base name */
-static const char *const ib_logfile= "ib_logfile";
-
 /** Error from mlog_decode_len() */
 constexpr uint32_t MLOG_DECODE_ERROR= ~0U;
 

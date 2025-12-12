@@ -1966,7 +1966,7 @@ inline void log_t::write_checkpoint(lsn_t end_lsn) noexcept
         ut_ad(!log.is_opened());
         bool success;
         log.m_file=
-          os_file_create_func(get_log_file_path().c_str(), OS_FILE_OPEN,
+          os_file_create_func(get_circular_path().c_str(), OS_FILE_OPEN,
                               OS_LOG_FILE, false, &success);
         ut_a(success);
         ut_a(log.is_opened());
