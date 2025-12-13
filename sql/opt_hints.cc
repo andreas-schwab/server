@@ -357,16 +357,7 @@ find_hints_by_implicit_qb_name(Parse_context *pc, const Lex_ident_sys &qb_name)
       return std::make_pair(implicit_qb_result::AMBIGUOUS, nullptr);
     }
 
-    SELECT_LEX *child_select;
-    if (tbl->is_derived())
-    {
-      child_select= tbl->derived->first_select();
-    }
-    else
-    {
-      DBUG_ASSERT(tbl->is_view());
-      child_select= tbl->view->unit.first_select();
-    }
+    SELECT_LEX *child_select= tbl->get_unit()->first_select();
     /*
       Check if the derived table/view does not contain UNION, because
       implicit QB names for UNIONs are ambiguous - we do not know which SELECT
